@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
@@ -14,12 +14,12 @@ export class AttendanceController {
 
 
   @Post('check-in')
-  checkIn(@CurrentUser(['userId']) userId:string) {
+  checkIn(@CurrentUser('userId') userId:string) {
     return this.attendanceService.checkIn(userId);
   }
 
   @Post('check-out')
-  checkOut(@CurrentUser(['userId']) userId:string) {
+  checkOut(@CurrentUser('userId') userId:string) {
     return this.attendanceService.checkOut(userId);
   }
 }

@@ -34,8 +34,22 @@ export class UtilitiesService {
       throw new NotFoundException('لم يتم العثور على حساب المدير');
     }
 
-    const present = admin.subordinates.filter((e: any) => e.attendances.length > 0 && e.attendances[0].checkIn);
-    const absent = admin.subordinates.filter((e: any) => e.attendances.length === 0);
+    // تصنيف دقيق لحالات الحضور
+    const present = admin.subordinates.filter((e: any) => 
+      e.attendances.length > 0 && 
+      e.attendances[0].checkIn && 
+      (e.attendances[0].status === 'ON_TIME' || e.attendances[0].status === 'LATE')
+    );
+
+    const absent = admin.subordinates.filter((e: any) => 
+      e.attendances.length === 0 || 
+      (e.attendances.length > 0 && e.attendances[0].status === 'ABSENT')
+    );
+
+    const excused = admin.subordinates.filter((e: any) => 
+      e.attendances.length > 0 && e.attendances[0].status === 'EXCUSED'
+    );
+
     const late = present.filter((e: any) => e.attendances[0].status === 'LATE');
     const onTime = present.filter((e: any) => e.attendances[0].status === 'ON_TIME');
 
@@ -43,13 +57,14 @@ export class UtilitiesService {
       total: admin.subordinates.length,
       present: present.length,
       absent: absent.length,
+      excused: excused.length,
       late: late.length,
       onTime: onTime.length,
-      details: { present, absent, late, onTime }
+      details: { present, absent, excused, late, onTime }
     };
   }
 
-  // جلب سجل أسبوعي للموظف الحالي
+  // جلب سجل أسبوعي للموظف الحالي (تعديل المقارنة إلى lt لضمان 7 أيام بدقة)
   async getWeeklyReport(userId: string, startDate: string) {
     const start = new Date(startDate);
     start.setHours(0, 0, 0, 0);
@@ -68,13 +83,13 @@ export class UtilitiesService {
     return this.prisma.attendance.findMany({
       where: {
         employeeProfileId: user.employeeProfile.id,
-        date: { gte: start, lte: end }
+        date: { gte: start, lt: end }
       },
       orderBy: { date: 'asc' }
     });
   }
 
-  // جلب سجل أسبوعي لجميع موظفي المدير
+  // جلب سجل أسبوعي لجميع موظفي المدير (تعديل المقارنة إلى lt لضمان 7 أيام بدقة)
   async latestWeekReport(managerUserId: string, startDate: string) {
     const start = new Date(startDate);
     start.setHours(0, 0, 0, 0);
@@ -95,7 +110,7 @@ export class UtilitiesService {
             },
             attendances: {
               where: {
-                date: { gte: start, lte: end },
+                date: { gte: start, lt: end },
               },
               orderBy: { date: 'asc' },
             }
@@ -114,6 +129,100 @@ export class UtilitiesService {
   // جلب تقرير أسبوعي لموظف معين بواسطة المدير
   async getAEmployeeWeeklyReport(employeeUserId: string, startDate: string) {
     return this.getWeeklyReport(employeeUserId, startDate);
+  }
+
+  // جلب سجل شهري للموظف الحالي (تغطية شهر كامل بدقة)
+  async getMonthlyReport(userId: string, startDate: string) {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { employeeProfile: true }
+    });
+
+    if (!user || !user.employeeProfile) {
+      throw new NotFoundException('لم يتم العثور على ملف الموظف');
+    }
+
+    return this.prisma.attendance.findMany({
+      where: {
+        employeeProfileId: user.employeeProfile.id,
+        date: { gte: start, lt: end }
+      },
+      orderBy: { date: 'asc' }
+    });
+  }
+
+  // جلب سجل شهري لجميع موظفي المدير
+  async latestMonthReport(managerUserId: string, startDate: string) {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
+
+    const admin = await this.prisma.adminProfile.findUnique({
+      where: { userId: managerUserId },
+      include: {
+        subordinates: {
+          include: {
+            user: {
+              select: {
+                fullName: true,
+                email: true,
+                phone: true,
+              }
+            },
+            attendances: {
+              where: {
+                date: { gte: start, lt: end },
+              },
+              orderBy: { date: 'asc' },
+            }
+          }
+        }
+      }
+    });
+
+    if (!admin) {
+      throw new NotFoundException('لم يتم العثور على حساب المدير');
+    }
+
+    return admin.subordinates;
+  }
+
+  // جلب حالة حضور اليوم للموظف
+  async getTodayAttendanceStatus(userId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        employeeProfile: {
+          include: {
+            shift: true,
+            attendances: {
+              where: { date: today }
+            }
+          }
+        }
+      }
+    });
+
+    if (!user || !user.employeeProfile) {
+      throw new NotFoundException('لم يتم العثور على ملف الموظف');
+    }
+
+    const attendance = user.employeeProfile.attendances[0] || null;
+    return {
+      shift: user.employeeProfile.shift,
+      attendance,
+      checkedIn: !!attendance?.checkIn,
+      checkedOut: !!attendance?.checkOut,
+    };
   }
 
   // البحث عن مستخدم (عامل أو مدير) بصيغة Prisma آمنة

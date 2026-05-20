@@ -1,12 +1,7 @@
-import { Controller, Get,Query, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Patch, Param, Delete } from '@nestjs/common';
 import { ManagingService } from './managing.service';
 import { UtilitiesService } from '../utilities/utilities.service';
-import { ManagingDto } from './dto/managing.dto';
 import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
-import { UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../core/guards/auth.guard';
-import { RolesGuard } from '../core/guards/role.guard';
-import { Roles } from '../core/decorators/role.decorator';
 import { Auth } from '../core/decorators/golebl.auth.decorator';
 import { Role } from '@prisma/client';
 import { shift } from './dto/shfit.dto';
@@ -16,13 +11,15 @@ import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
 // main path 
 @Controller('managing')
 
-//  الحراس و صلحيات الوصول
+// الحراس وصلاحيات الوصول
 // authentication and authorization 
 @Auth(Role.SUPER_ADMIN)
-
 export class ManagingController {
-  constructor(private readonly managingService: ManagingService , private readonly utility : UtilitiesService) {}
- 
+  constructor(
+    private readonly managingService: ManagingService,
+    private readonly utility: UtilitiesService
+  ) {}
+
   // GET /managing/dashboard?date=2026-05-18
   @Get('dashboard')
   async getDashboard(
@@ -32,7 +29,7 @@ export class ManagingController {
     return this.utility.getDashboard(userId, date || new Date().toISOString().split('T')[0]);
   }
 
-  // أضافة عامل لدى المدير 
+  // إضافة عامل لدى المدير 
   // add worker to manager
   @Post('add-employee/:id')
   addworker(@Param('id') employeeUserId: string, @CurrentUser('userId') managerUserId: string) {
@@ -43,9 +40,7 @@ export class ManagingController {
   // get all employees of manager 
   @Get('my-employees')
   getMyWorkers(@CurrentUser('userId') managerUserId: string) {
-    const dto = new ManagingDto();
-    dto.managerId = managerUserId;
-    return this.managingService.getMyWorkers(dto);
+    return this.managingService.getMyWorkers(managerUserId);
   }
 
   @Post('make-a-shift')
@@ -56,12 +51,38 @@ export class ManagingController {
   // تدقيق العامل لدى المدير 
   // audit employee to manager  
   @Patch('audit-employee')
-  update(@Query() email: string, @Query() employeeId: string, @Body() audit: auditMyEmployeeDto) {
+  update(
+    @Query('email') email: string,
+    @Query('employeeId') employeeId: string,
+    @Body() audit: auditMyEmployeeDto
+  ) {
     return this.managingService.handleAndAuditMyEmployees(email, employeeId, audit);
   }
 
   @Delete('delete-employee/:id')
   remove(@Param('id') id: string) {
     return this.managingService.removeEmployee(id);
+  }
+
+  // التقارير الأسبوعية والشهرية للمدير
+
+  @Get('weekly-report')
+  getWeeklyReport(@CurrentUser('userId') managerUserId: string, @Query('startDate') startDate: string) {
+    return this.utility.latestWeekReport(managerUserId, startDate);
+  }
+
+  @Get('monthly-report')
+  getMonthlyReport(@CurrentUser('userId') managerUserId: string, @Query('startDate') startDate: string) {
+    return this.utility.latestMonthReport(managerUserId, startDate);
+  }
+
+  @Get('employee-weekly-report/:id')
+  getEmployeeWeeklyReport(@Param('id') employeeUserId: string, @Query('startDate') startDate: string) {
+    return this.utility.getAEmployeeWeeklyReport(employeeUserId, startDate);
+  }
+
+  @Get('employee-monthly-report/:id')
+  getEmployeeMonthlyReport(@Param('id') employeeUserId: string, @Query('startDate') startDate: string) {
+    return this.utility.getMonthlyReport(employeeUserId, startDate);
   }
 }

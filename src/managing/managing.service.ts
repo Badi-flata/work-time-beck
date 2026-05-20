@@ -102,72 +102,65 @@ export class ManagingService {
     });
   }
 
- /** 
- *  دالة تدقيق و تعديل و اضافه ملاحظات للعامل من طرف المدير 
- * function to audit and edit and add notes to the employee by the manager
- */
-  async handleAndAuditMyEmployees(email:string ,employeeId: string,
-          auditDto: auditMyEmployeeDto) {
-  try{
-    const feiter = {
-      ...(employeeId ? { id: employeeId }: {}),
-      ...(email ? { email: email }: {}),
-    }  
-     const check = await this.prisma.user.findFirst({
-       where: { 
-         ...feiter
-       },
-       select: {
-         role: true,
-         employeeProfile: {
-           select: {
-             id:true,
-             managerId: true,
-             shiftId: true,
-             attendances: {
-             select: { id: true }
-         }
-           }
-         },
+  /** 
+   * دالة تدقيق وتعديل وإضافة ملاحظات للعامل من طرف المدير
+   * Function to audit, edit, and add notes to the employee by the manager
+   */
+  async handleAndAuditMyEmployees(email: string, employeeId: string, auditDto: auditMyEmployeeDto) {
+    try {
+      const filter = {
+        ...(employeeId ? { id: employeeId } : {}),
+        ...(email ? { email: email } : {}),
+      };
 
-         
-       }
-     })
+      const check = await this.prisma.user.findFirst({
+        where: filter,
+        select: {
+          id: true,
+          role: true,
+          employeeProfile: {
+            select: {
+              id: true,
+              managerId: true,
+              shiftId: true,
+            }
+          }
+        }
+      });
 
-   if (!check || check.role !== Role.EMPLOYEE) throw new UnauthorizedException("العامل غير موجود او ليس عامل");
-   
+      if (!check || check.role !== Role.EMPLOYEE || !check.employeeProfile) {
+        throw new UnauthorizedException("العامل غير موجود أو ليس لديه ملف موظف");
+      }
 
-      this.prisma.employeeProfile.update({
-       where: {
-         userId: check?.employeeProfile?.id
-       },
-       // معالجة بيانات العامل
-       // handling employee data
-       data: {
-         ...(auditDto.salary && { salary: auditDto.salary }),
-         ...(auditDto.isWorking && { isWorking: auditDto.isWorking }),
+      // 1. تحديث بيانات الملف الشخصي للموظف (الراتب، هل يعمل، الوردية)
+      const updatedProfile = await this.prisma.employeeProfile.update({
+        where: { id: check.employeeProfile.id },
+        data: {
+          ...(auditDto.salary !== undefined && { salary: auditDto.salary }),
+          ...(auditDto.isWorking !== undefined && { isWorking: auditDto.isWorking }),
+          ...(auditDto.shiftId && { shiftId: auditDto.shiftId }),
+        }
+      });
 
-         ...(auditDto.shiftId && { shiftId: auditDto.shiftId }),
-         // جلب جميع الحضور الخاصة بالعامل
-         // get all attendances for the employee
-        ...(auditDto.employeestatus || auditDto.adminNotes ) && {
-           attendances: {
-             update: {
-               where: { id: auditDto.attendanceId },
-               data: {
-                 ...(auditDto.employeestatus && { status: auditDto.employeestatus }),
-                 ...(auditDto.adminNotes && { adminNotes: auditDto.adminNotes }),
-               },
-             },
-           },
-         },
-       },
-     }) 
-     
-     return }catch(e){
-       throw new Error('خطاء في "auditMyEmployee" , رسالة الخطاء: ' +e.message)
-     }
-}
+      // 2. تحديث سجل حضور الموظف إذا تم إرسال معرف السجل
+      if (auditDto.attendanceId && (auditDto.employeestatus || auditDto.adminNotes)) {
+        await this.prisma.attendance.update({
+          where: { id: auditDto.attendanceId },
+          data: {
+            ...(auditDto.employeestatus && { status: auditDto.employeestatus }),
+            ...(auditDto.adminNotes && { adminNotes: auditDto.adminNotes }),
+          }
+        });
+      }
+
+      return {
+        message: "تم تحديث وتدقيق بيانات الموظف بنجاح",
+        profile: updatedProfile
+      };
+    } catch (e) {
+      throw new Error('خطأ في تدقيق بيانات الموظف، رسالة الخطأ: ' + e.message);
+    }
+  }
 
   // اضافه مناوبه 
  // adding shift

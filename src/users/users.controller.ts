@@ -37,12 +37,12 @@ export class UsersController {
   }
 
   @Patch('updateMyProfile')
-  update(@CurrentUser(['userId']) id: string, @Body() updateUserDto: UpdateUserDto) {
+  update(@CurrentUser('userId') id: string, @Body() updateUserDto: UpdateUserDto) {
     return this.usersService.update(id, updateUserDto);
   }
 
   @Delete('deleteMyProfile')
-  remove(@CurrentUser(['userId']) id: string) {
+  remove(@CurrentUser('userId') id: string) {
     return this.usersService.remove(id);
   }
 }
