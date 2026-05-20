@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { parseISO, startOfDay, addDays, addMonths } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+
+const TZ = 'Asia/Riyadh';
 
 @Injectable()
 export class UtilitiesService {
@@ -7,8 +11,7 @@ export class UtilitiesService {
 
   // GET /managing/dashboard?date=2026-05-18
   async getDashboard(managerId: string, date: string) {
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
+    const targetDate = startOfDay(parseISO(date));
 
     const admin = await this.prisma.adminProfile.findUnique({
       where: { userId: managerId },
@@ -66,10 +69,8 @@ export class UtilitiesService {
 
   // جلب سجل أسبوعي للموظف الحالي (تعديل المقارنة إلى lt لضمان 7 أيام بدقة)
   async getWeeklyReport(userId: string, startDate: string) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
+    const start = startOfDay(parseISO(startDate));
+    const end = addDays(start, 7);
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -91,10 +92,8 @@ export class UtilitiesService {
 
   // جلب سجل أسبوعي لجميع موظفي المدير (تعديل المقارنة إلى lt لضمان 7 أيام بدقة)
   async latestWeekReport(managerUserId: string, startDate: string) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
+    const start = startOfDay(parseISO(startDate));
+    const end = addDays(start, 7);
 
     const admin = await this.prisma.adminProfile.findUnique({
       where: { userId: managerUserId },
@@ -133,10 +132,8 @@ export class UtilitiesService {
 
   // جلب سجل شهري للموظف الحالي (تغطية شهر كامل بدقة)
   async getMonthlyReport(userId: string, startDate: string) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setMonth(end.getMonth() + 1);
+    const start = startOfDay(parseISO(startDate));
+    const end = addMonths(start, 1);
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -158,10 +155,8 @@ export class UtilitiesService {
 
   // جلب سجل شهري لجميع موظفي المدير
   async latestMonthReport(managerUserId: string, startDate: string) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setMonth(end.getMonth() + 1);
+    const start = startOfDay(parseISO(startDate));
+    const end = addMonths(start, 1);
 
     const admin = await this.prisma.adminProfile.findUnique({
       where: { userId: managerUserId },
@@ -195,8 +190,7 @@ export class UtilitiesService {
 
   // جلب حالة حضور اليوم للموظف
   async getTodayAttendanceStatus(userId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = startOfDay(toZonedTime(Date.now(), TZ));
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

@@ -6,6 +6,10 @@ import { Auth } from '../core/decorators/golebl.auth.decorator';
 import { Role } from '@prisma/client';
 import { shift } from './dto/shfit.dto';
 import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
+import { format } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+
+const TZ = 'Asia/Riyadh';
 
 // الاسم الرئيسي للمسارات
 // main path 
@@ -26,7 +30,8 @@ export class ManagingController {
     @CurrentUser('userId') userId: string,
     @Query('date') date?: string
   ) {
-    return this.utility.getDashboard(userId, date || new Date().toISOString().split('T')[0]);
+    const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+    return this.utility.getDashboard(userId, date || defaultDate);
   }
 
   // إضافة عامل لدى المدير 
