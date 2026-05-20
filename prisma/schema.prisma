@@ -1,0 +1,137 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------
+// Enums
+// ----------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN // مدير النظام العام (له كامل الصلاحيات)
+  EMPLOYEE    // الموظف العادي
+}
+
+enum AttendanceStatus {
+  ON_TIME
+  LATE
+  ABSENT
+  EXCUSED
+}
+
+// ----------------------------------------------------
+// Models
+// ----------------------------------------------------
+
+// جدول المستخدمين الرئيسي (لأغراض تسجيل الدخول والمصادقة)
+model User {
+  id           String           @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  fullName     String
+  role         Role          @default(EMPLOYEE)
+  phone        String?
+  
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // علاقات الامتداد (1-to-1 العلاقات)
+  employeeProfile EmployeeProfile? // يمتد هنا إذا كان موظفاً
+  adminProfile    AdminProfile?    // يمتد هنا إذا كان مديراً
+}
+
+// جديد: جدول ملف المدير (مفصول تماماً عن تعقيدات الحضور)
+model AdminProfile {
+  id             String           @id @default(uuid())
+  
+  // ربطه بحساب المستخدم الرئيسي
+  userId         String           @unique
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // العلاقات الإدارية:
+  // المدير يدير أقساماً معينة
+  managedDepartments Department[]
+  
+  // المدير يشرف على موظفين محددين بشكل مباشر (اختياري)
+  subordinates       EmployeeProfile[]
+}
+
+// جدول ملف الموظف (مخصص لمتابعة العمل والحضور والورديات)
+model EmployeeProfile {
+  id         String           @id @default(uuid())
+  
+  // ربطه بحساب المستخدم الرئيسي
+  userId         String          @unique
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  isWorking      Boolean         @default(false)
+  salary         Int             @default(500)
+
+  // علاقات العمل الأساسية
+  departmentId String
+  department   Department   @relation(fields: [departmentId], references: [id])
+  
+  shiftId      String
+  shift        Shift        @relation(fields: [shiftId], references: [id])
+
+  // علاقة المدير المباشر: ربط الموظف بالمدير المسؤول عنه
+  managerId    String?
+  manager      AdminProfile? @relation(fields: [managerId], references: [id])
+
+  // سجلات الحضور الخاصة بالموظف فقط
+  attendances  Attendance[]
+}
+
+// جدول الأقسام
+model Department {
+  id             String           @id @default(uuid())
+  name           String            @unique
+  
+  // العلاقات
+  employees      EmployeeProfile[]
+  shift          Shift[]
+  
+  // ربط القسم بالمدير المسؤول عنه
+  managerId      String
+  manager        AdminProfile?     @relation(fields: [managerId], references: [id])
+}
+
+// جدول الورديات
+model Shift {
+  id             String           @id @default(uuid())
+  name           String            
+  startTime      String            
+  endTime        String            
+  gracePeriodMin Int               @default(15)
+
+  departmentsId  String  
+  departments    Department @relation(fields: [departmentsId], references: [id], onDelete: Cascade)
+
+  employees      EmployeeProfile[]
+}
+
+// جدول الحضور والانصراف (مرتبط فقط بملف الموظف)
+model Attendance {
+  id                  String           @id @default(uuid())
+  date                DateTime         @db.Date
+  checkIn             DateTime?        
+  checkOut            DateTime?        
+  status              AttendanceStatus @default(ON_TIME)
+  
+  delayMinutes        Int              @default(0)
+  earlyLeaveMinutes   Int              @default(0)
+  totalWorkedMinutes  Int              @default(0)
+  adminNotes          String?          @db.Text 
+
+  // ارتباط السجل بالموظف
+  employeeProfileId   String
+  employeeProfile     EmployeeProfile  @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeProfileId, date])
+}
