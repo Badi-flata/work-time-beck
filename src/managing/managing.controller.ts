@@ -90,4 +90,22 @@ export class ManagingController {
   getEmployeeMonthlyReport(@Param('id') employeeUserId: string, @Query('startDate') startDate: string) {
     return this.utility.getMonthlyReport(employeeUserId, startDate);
   }
+
+  // ─── الانصراف التلقائي (Cron / Admin trigger) ─────────────────
+  // POST /managing/auto-checkout
+  // يُشغَّل من قِبل المدير أو Cron Job بعد انتهاء الورديات + فترة السماح
+  // يبحث عن كل موظف لم يسجّل انصرافه ويعالجه تلقائياً
+  @Post('auto-checkout')
+  runAutoCheckout() {
+    return this.utility.automaticalCheckOut();
+  }
+
+  // ─── خصم الراتب اليومي ────────────────────────────────────────
+  // POST /managing/salary-deduction/:employeeId
+  // يُطبَّق الخصم اليومي بناءً على سجل الحضور (تأخر، مغادرة مبكرة، ESCAPY)
+  // يُجمع الخصم على salaryDeduction التراكمي دون المساس بـ salary الأساسي
+  @Post('salary-deduction/:employeeId')
+  applySalaryDeduction(@Param('employeeId') employeeId: string) {
+    return this.utility.salaryDeductionDaly(employeeId);
+  }
 }

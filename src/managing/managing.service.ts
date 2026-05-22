@@ -59,7 +59,8 @@ export class ManagingService {
                 name: true,
                 startTime: true,
                 endTime: true,
-                gracePeriodMin: true
+                gracePeriodMinIn: true,
+                gracePeriodMinOut: true
               }
             },
           }
@@ -157,33 +158,33 @@ export class ManagingService {
         message: "تم تحديث وتدقيق بيانات الموظف بنجاح",
         profile: updatedProfile
       };
-    } catch (e) {
+    } catch (e)
+    {
       throw new Error('خطأ في تدقيق بيانات الموظف، رسالة الخطأ: ' + e.message);
     }
   }
 
   // اضافه مناوبه 
  // adding shift
- async newShfit(Dto:shift){
-  const Id = randomUUID()
-  try{
-  await this.prisma.shift.create({
-    data:{
-      id:Id,
-      name:Dto.name,
-      startTime:Dto.startTime,
-      endTime:Dto.endTime,
-      gracePeriodMin:Dto.gracePeriodMin,
-      departmentsId:Dto.departmentsId
+  async newShfit(Dto: shift) {
+    const Id = randomUUID();
+    try {
+      await this.prisma.shift.create({
+        data: {
+          id: Id,
+          name: Dto.name,
+          startTime: Dto.startTime,
+          endTime: Dto.endTime,
+          gracePeriodMinIn: Dto.gracePeriodMinIn,
+          gracePeriodMinOut: Dto.gracePeriodMinOut,
+          departmentsId: Dto.departmentsId,
+        },
+      });
+      return 'تمت إضافة الوردية بنجاح';
+    } catch (e) {
+      throw new Error('خطأ في إضافة الوردية: ' + e.message);
     }
-
-  })
-  return "تمت الاضافه بنجاح"
- }
- catch(e){
-  throw new Error("خطاء في اضافه مناوبه "+e.message)
- }
-}
+  }
 
   // حذف عامل من المدير
   // removing employee from manager
