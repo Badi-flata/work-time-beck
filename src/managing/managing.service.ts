@@ -10,63 +10,79 @@ import { shift } from './dto/shfit.dto';
 @Injectable()
 export class ManagingService {
   constructor(private prisma: PrismaService) { }
-   //  جلب جميع العمال  لدى المدير 
+  //  جلب جميع العمال  لدى المدير 
   // get all workers for the manager
-  getMyWorkers(userId: string) {
-    return this.prisma.adminProfile.findMany({
-      where: {
-        userId:userId
-      },
-      include: {
-        // بيانات العمال
-        // get employee data
-        subordinates: {
-          select: {
-            user: {
-              select: {
-                fullName: true,
-                email: true,
-                phone: true,
-                // الراتب 
-                // salary
-                employeeProfile: {
-                  select: {
-                    salary: true,
-                    isWorking: true
-                  }
-                }
+  async getMyWorkers(userId: string, page: number = 1, limit: number = 10) {
+    const manager = await this.prisma.adminProfile.findUnique({
+      where: { userId }
+    });
+    if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
 
-              }
-            },
-            // جلب جميع الحضور الخاصة بالعامل
-            // get all attendances for the employee
-            attendances: {
+    const total = await this.prisma.employeeProfile.count({
+      where: { managerId: manager.id }
+    });
+
+    const skip = (page - 1) * limit;
+
+    const subordinates = await this.prisma.employeeProfile.findMany({
+      where: { managerId: manager.id },
+      skip,
+      take: limit,
+      select: {
+        user: {
+          select: {
+            fullName: true,
+            email: true,
+            phone: true,
+            // الراتب 
+            // salary
+            employeeProfile: {
               select: {
-                date: true,
-                checkIn: true,
-                checkOut: true,
-                status: true,
-                delayMinutes: true,
-                earlyLeaveMinutes: true,
-                totalWorkedMinutes: true,
-                adminNotes: true
+                salary: true,
+                isWorking: true
               }
-            },
-            // جلب جميع الحضور الخاصة بالعامل
-            // get all attendances for the employee
-            shift: {
-              select: {
-                name: true,
-                startTime: true,
-                endTime: true,
-                gracePeriodMinIn: true,
-                gracePeriodMinOut: true
-              }
-            },
+            }
           }
         },
+        // جلب جميع الحضور الخاصة بالعامل
+        // get all attendances for the employee
+        attendances: {
+          select: {
+            date: true,
+            checkIn: true,
+            checkOut: true,
+            status: true,
+            delayMinutes: true,
+            earlyLeaveMinutes: true,
+            totalWorkedMinutes: true,
+            adminNotes: true
+          }
+        },
+        // جلب تفاصيل وردية العامل
+        // get employee shift details
+        shift: {
+          select: {
+            name: true,
+            startTime: true,
+            endTime: true,
+            gracePeriodMinIn: true,
+            gracePeriodMinOut: true
+          }
+        }
       }
-    })
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: subordinates,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages
+      }
+    };
   }
 
   // أضافة عامل لدى المدير 

@@ -44,8 +44,14 @@ export class ManagingController {
   // جلب جميع العمال لدى المدير 
   // get all employees of manager 
   @Get('my-employees')
-  getMyWorkers(@CurrentUser('userId') managerUserId: string) {
-    return this.managingService.getMyWorkers(managerUserId);
+  getMyWorkers(
+    @CurrentUser('userId') managerUserId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 10;
+    return this.managingService.getMyWorkers(managerUserId, pageNumber, limitNumber);
   }
 
   @Post('make-a-shift')
