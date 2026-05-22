@@ -4,7 +4,7 @@ import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { shift } from './dto/shfit.dto';
 
 @Injectable()
@@ -174,14 +174,13 @@ export class ManagingService {
         message: "تم تحديث وتدقيق بيانات الموظف بنجاح",
         profile: updatedProfile
       };
-    } catch(e)
-    {
-      throw new Error('خطأ في تدقيق بيانات الموظف، رسالة الخطأ: ' + e?.message );
+    } catch(e) {
+      throw new BadRequestException('خطأ في تدقيق بيانات الموظف، رسالة الخطأ: ' + e?.message);
     }
   }
 
   // اضافه مناوبه 
- // adding shift
+  // adding shift
   async newShfit(Dto: shift) {
     const Id = randomUUID();
     try {
@@ -198,7 +197,7 @@ export class ManagingService {
       });
       return 'تمت إضافة الوردية بنجاح';
     } catch (e) {
-      throw new Error('خطأ في إضافة الوردية: ' + e?.message);
+      throw new BadRequestException('خطأ في إضافة الوردية: ' + e?.message);
     }
   }
 

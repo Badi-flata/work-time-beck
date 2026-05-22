@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException , ExecutionContext} from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, NotFoundException, ForbiddenException, InternalServerErrorException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -23,12 +23,13 @@ export class UsersService {
   // أنشاء مدير 
   async createManager(Dto: CreateUserDto) {
     if(Dto.role !== Role.SUPER_ADMIN){
-      throw new Error('You are not authorized to create a manager');
+      throw new ForbiddenException('ليس لديك الصلاحية لإنشاء حساب مدير.');
     }
-    const passwordHash = await bcrypt.hash(Dto.passwordHash,10)
-    const Id = randomUUID()
-    try{
-   const newManager = await this.prisma.user.create({ 
+    const passwordHash = await bcrypt.hash(Dto.passwordHash,10);
+    const Id = randomUUID();
+    
+    // السماح لـ Prisma برمي الاستثناء مباشرة ليلتقطه AllExceptionsFilter ويحلل رموز الأخطاء بدقة
+    const newManager = await this.prisma.user.create({ 
       data:{ 
          id:Id , 
          fullName:Dto.fullName,
@@ -40,99 +41,94 @@ export class UsersService {
          create:{
             id:randomUUID(),   
         }}},
-      })
-    const token =   this.jwt.generateTokenPair( Dto.fullName, Id , Dto.role );
+      });
+    const token = this.jwt.generateTokenPair( Dto.fullName, Id , Dto.role );
     return {
       token,
       newManager
-      }
-    
-    }catch(e){
-        throw new Error(`خطاء في تسجيل المدير : ${e}`)
-      }
-    
+    };
   }
 
   // أنشاء عامل مع ربط بالقسم و المدير
   async creatEmploye(Dto:CreateUserDto) {
+    if(Dto.role !== Role.EMPLOYEE) {
+      throw new BadRequestException('عذراً، يجب أن يكون دور المستخدم موظف/عامل (EMPLOYEE).');
+    }
 
-    if(Dto.role !== Role.EMPLOYEE)throw new Error(" لستى عامل")
+    const Id = randomUUID();
 
-      const Id = randomUUID()
-
-  try{
-  // التحقق من وجود القسم و الربط مع التحويل 
-      const depId = await this.prisma.department.findUnique({
-        where:{
-          name:Dto.departmentName
-        },
-        include:{
-          shift:{
-            select:{
-              id:true
-            }
+    // التحقق من وجود القسم و الربط مع التحويل 
+    const depId = await this.prisma.department.findUnique({
+      where:{
+        name:Dto.departmentName
+      },
+      include:{
+        shift:{
+          select:{
+            id:true
           }
         }
-      })
-
-      if(!depId){
-        throw new Error(`القسم ${Dto.departmentName} غير موجود `)
       }
-      const passwordHash = await bcrypt.hash(Dto.passwordHash,10)
+    });
 
-      const Employe = await this.prisma.user.create({
-        data:{
-          id:Id,
-          fullName:Dto.fullName,
-          email:Dto.email,
-          passwordHash:passwordHash,
-          phone:Dto.phone,
-          role:Dto.role,
-          employeeProfile:{
-            create:{
-              id:randomUUID(),
-              departmentId:depId.id,
-              shiftId:depId.shift[0]?.id,
-              managerId:depId.managerId
-            }
+    if(!depId){
+      throw new NotFoundException(`القسم المحدد (${Dto.departmentName}) غير موجود في النظام.`);
+    }
+
+    const passwordHash = await bcrypt.hash(Dto.passwordHash,10);
+
+    const Employe = await this.prisma.user.create({
+      data:{
+        id:Id,
+        fullName:Dto.fullName,
+        email:Dto.email,
+        passwordHash:passwordHash,
+        phone:Dto.phone,
+        role:Dto.role,
+        employeeProfile:{
+          create:{
+            id:randomUUID(),
+            departmentId:depId.id,
+            shiftId:depId.shift[0]?.id,
+            managerId:depId.managerId
           }
         }
-      })
-    const token =   this.jwt.generateTokenPair( Dto.fullName, Id , Dto.role );
+      }
+    });
+
+    const token = this.jwt.generateTokenPair( Dto.fullName, Id , Dto.role );
     return {
       token,
       Employe
-      }}catch(e){
-        throw new Error(`خطاء في تسجيل العامل : ${e}`)
-      }
-
+    };
   }
 
 
   // تسجيل الدخول 
   async loginIn( passwordHash: string ,email:string) {
-    try{ 
     // التحقق من وجود المستخدم 
-    const user = await this.prisma.user.findUnique({ where: { email } , include:{adminProfile:true ||undefined , employeeProfile:true || undefined} });
+    const user = await this.prisma.user.findUnique({ 
+      where: { email }, 
+      include: { 
+        adminProfile: true, 
+        employeeProfile: true 
+      } 
+    });
    
-    if(!user)throw new UnauthorizedException('البريد الالكتروني غير صحيح');
+    if(!user) throw new UnauthorizedException('البريد الالكتروني أو كلمة المرور غير صحيحة.');
       
     // التحقق من كلمة المرور 
-    const isValid = await bcrypt.compare(passwordHash , user.passwordHash )
+    const isValid = await bcrypt.compare(passwordHash , user.passwordHash );
 
-    if(!isValid) throw new UnauthorizedException('كلمة المورو خطاء');
+    if(!isValid) throw new UnauthorizedException('البريد الالكتروني أو كلمة المرور غير صحيحة.');
    
     // توليد الـ Access Token 
-    const newJWT =  this.jwt.generateTokenPair( user.fullName , user.id , user.role)
+    const newJWT = this.jwt.generateTokenPair( user.fullName , user.id , user.role);
 
     return {
       token:newJWT,
       Profile:user
-    }
-  }catch(err){
-      console.error(err)
-      throw new Error('حدث خطاء في تسجيل الدخول')
-    }
+    };
   }
   
 
