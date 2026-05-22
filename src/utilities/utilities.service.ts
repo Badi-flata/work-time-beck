@@ -433,7 +433,7 @@ export class UtilitiesService {
       return {
         deducted: 0,
         newTotalDeduction: employee.salaryDeduction ?? 0,
-        breakdown: {  message: 'لا يوجد خصم مستحق لهذا اليوم' },
+        breakdown: { 'لا يوجد خصم مستحق لهذا اليوم': 0 },
       };
     }
 

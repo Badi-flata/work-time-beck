@@ -158,9 +158,9 @@ export class ManagingService {
         message: "تم تحديث وتدقيق بيانات الموظف بنجاح",
         profile: updatedProfile
       };
-    } catch (e)
+    } catch(e)
     {
-      throw new Error('خطأ في تدقيق بيانات الموظف، رسالة الخطأ: ' + e.message);
+      throw new Error('خطأ في تدقيق بيانات الموظف، رسالة الخطأ: ' + e?.message );
     }
   }
 
@@ -182,7 +182,7 @@ export class ManagingService {
       });
       return 'تمت إضافة الوردية بنجاح';
     } catch (e) {
-      throw new Error('خطأ في إضافة الوردية: ' + e.message);
+      throw new Error('خطأ في إضافة الوردية: ' + e?.message);
     }
   }
 
