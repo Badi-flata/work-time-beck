@@ -97,7 +97,7 @@ export class ManagingController {
   // يبحث عن كل موظف لم يسجّل انصرافه ويعالجه تلقائياً
   @Post('auto-checkout')
   runAutoCheckout() {
-    return this.utility.automaticalCheckOut();
+    return this.utility.automaticallyCheckOut();
   }
 
   // ─── خصم الراتب اليومي ────────────────────────────────────────
@@ -106,6 +106,6 @@ export class ManagingController {
   // يُجمع الخصم على salaryDeduction التراكمي دون المساس بـ salary الأساسي
   @Post('salary-deduction/:employeeId')
   applySalaryDeduction(@Param('employeeId') employeeId: string) {
-    return this.utility.salaryDeductionDaly(employeeId);
+    return this.utility.salaryDeductionDaily(employeeId);
   }
 }
