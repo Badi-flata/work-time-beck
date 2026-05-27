@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';import {
+import { PrismaService } from 'src/prisma/prisma.service';
+import {
   parseISO,
   startOfDay,
   addDays,
@@ -9,20 +10,25 @@ import { PrismaService } from 'src/prisma/prisma.service';import {
   setMinutes,
   setSeconds,
   setMilliseconds,
+  format,
 } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { AttendanceStatus } from '@prisma/client';
+import { StatisticsHelperService } from './statistics-helper.service';
 
 const TZ = 'Asia/Riyadh';
 
 @Injectable()
 export class UtilitiesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private statsHelper: StatisticsHelperService,
+  ) {}
 
   // ─────────────────────────────────────────────────────────────
-  // GET /managing/dashboard?date=2026-05-18
+  // GET /managing/dashboard?date=2026-05-18&status=LATE
   // ─────────────────────────────────────────────────────────────
-  async getDashboard(managerId: string, date: string) {
+  async getDashboard(managerId: string, date: string, statusFilter?: string) {
     const targetDate = startOfDay(parseISO(date));
 
     const admin = await this.prisma.adminProfile.findUnique({
@@ -49,42 +55,120 @@ export class UtilitiesService {
       throw new NotFoundException('لم يتم العثور على حساب المدير');
     }
 
-    // تصنيف دقيق لحالات الحضور
-    const present = admin.subordinates.filter(
-      (e: any) =>
-        e.attendances.length > 0 &&
-        e.attendances[0].checkIn &&
-        (e.attendances[0].status === 'ON_TIME' || e.attendances[0].status === 'LATE'),
-    );
+    const stats = this.statsHelper.computeDashboardStats(admin.subordinates);
 
-    const absent = admin.subordinates.filter(
-      (e: any) =>
-        e.attendances.length === 0 ||
-        (e.attendances.length > 0 && e.attendances[0].status === 'ABSENT'),
-    );
-
-    const excused = admin.subordinates.filter(
-      (e: any) => e.attendances.length > 0 && e.attendances[0].status === 'EXCUSED',
-    );
-
-    const escaped = admin.subordinates.filter(
-      (e: any) => e.attendances.length > 0 && e.attendances[0].status === 'ESCAPY',
-    );
-
-    const late = present.filter((e: any) => e.attendances[0].status === 'LATE');
-    const onTime = present.filter((e: any) => e.attendances[0].status === 'ON_TIME');
+    let filteredList: any[] | undefined = undefined;
+    if (statusFilter && statusFilter !== 'all') {
+      const key = statusFilter.toLowerCase();
+      const mapping: Record<string, string> = {
+        present: 'present',
+        absent: 'absent',
+        excused: 'excused',
+        escaped: 'escaped',
+        late: 'late',
+        ontime: 'onTime',
+      };
+      const actualKey = mapping[key] || statusFilter;
+      filteredList = stats.details[actualKey] || [];
+    }
 
     return {
-      total: admin.subordinates.length,
-      present: present.length,
-      absent: absent.length,
-      excused: excused.length,
-      escaped: escaped.length,
-      late: late.length,
-      onTime: onTime.length,
-      details: { present, absent, excused, escaped, late, onTime },
+      counts: stats.counts,
+      details: stats.details,
+      ...(filteredList !== undefined && { filteredList }),
     };
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // GET /managing/daily-report
+  // ─────────────────────────────────────────────────────────────
+  async getDailyReport(managerId: string, date?: string) {
+    const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+    const targetDateStr = date || defaultDate;
+    const targetDate = startOfDay(parseISO(targetDateStr));
+
+    // 1. Get dashboard stats for today
+    const dashboardStats = await this.getDashboard(managerId, targetDateStr);
+
+    const total = dashboardStats.counts.total;
+    const onTime = dashboardStats.counts.onTime;
+
+    // 2. Compute team discipline rate
+    const teamDisciplineRate = total > 0 ? Math.round((onTime / total) * 100) : 100;
+
+    let teamDisciplineLabel: string;
+    if (teamDisciplineRate >= 95) teamDisciplineLabel = 'ممتاز';
+    else if (teamDisciplineRate >= 85) teamDisciplineLabel = 'جيد جداً';
+    else if (teamDisciplineRate >= 70) teamDisciplineLabel = 'جيد';
+    else teamDisciplineLabel = 'يحتاج تحسين';
+
+    // 3. Find top disciplined employees & attendance log
+    const admin = await this.prisma.adminProfile.findUnique({
+      where: { userId: managerId },
+      include: {
+        subordinates: {
+          include: {
+            user: {
+              select: { fullName: true, id: true },
+            },
+            attendances: {
+              where: { date: targetDate },
+            },
+          },
+        },
+      },
+    });
+
+    const topDisciplined: any[] = [];
+    let todayAttendanceLog: any[] = [];
+
+    if (admin) {
+      const employeesWithDiscipline = await Promise.all(
+        admin.subordinates.map(async (sub) => {
+          const rateObj = await this.statsHelper.computeDisciplineRate(sub.id, 30);
+          return {
+            id: sub.id,
+            fullName: sub.user.fullName,
+            rate: rateObj.rate,
+            label: rateObj.label,
+          };
+        }),
+      );
+
+      employeesWithDiscipline.sort((a, b) => b.rate - a.rate);
+      topDisciplined.push(...employeesWithDiscipline.slice(0, 5));
+
+      todayAttendanceLog = admin.subordinates.map((sub) => {
+        const att = sub.attendances?.[0];
+        return {
+          id: sub.id,
+          fullName: sub.user.fullName,
+          checkIn: att?.checkIn || null,
+          checkOut: att?.checkOut || null,
+          status: att?.status || 'ABSENT',
+        };
+      });
+    }
+
+    // 4. Chart data: percentages
+    const chartData = {
+      present: total > 0 ? Math.round((dashboardStats.counts.present / total) * 100) : 0,
+      absent: total > 0 ? Math.round((dashboardStats.counts.absent / total) * 100) : 0,
+      late: total > 0 ? Math.round((dashboardStats.counts.late / total) * 100) : 0,
+      excused: total > 0 ? Math.round((dashboardStats.counts.excused / total) * 100) : 0,
+    };
+
+    return {
+      dashboardStats,
+      teamDisciplineRate,
+      teamDisciplineLabel,
+      topDisciplined,
+      chartData,
+      todayAttendanceLog,
+    };
+  }
+
+
 
   // ─────────────────────────────────────────────────────────────
   // التقارير الأسبوعية والشهرية
@@ -103,13 +187,20 @@ export class UtilitiesService {
       throw new NotFoundException('لم يتم العثور على ملف الموظف');
     }
 
-    return this.prisma.attendance.findMany({
+    const attendances = await this.prisma.attendance.findMany({
       where: {
         employeeProfileId: user.employeeProfile.id,
         date: { gte: start, lt: end },
       },
       orderBy: { date: 'asc' },
     });
+
+    const summaryResult = this.statsHelper.computePeriodSummary(attendances);
+
+    return {
+      summary: summaryResult.summary,
+      records: summaryResult.records,
+    };
   }
 
   async latestWeekReport(managerUserId: string, startDate: string) {
@@ -134,7 +225,14 @@ export class UtilitiesService {
     });
 
     if (!admin) throw new NotFoundException('لم يتم العثور على حساب المدير');
-    return admin.subordinates;
+
+    return admin.subordinates.map((sub: any) => {
+      const summaryResult = this.statsHelper.computePeriodSummary(sub.attendances);
+      return {
+        ...sub,
+        periodSummary: summaryResult.summary,
+      };
+    });
   }
 
   async getAEmployeeWeeklyReport(employeeUserId: string, startDate: string) {
@@ -154,13 +252,20 @@ export class UtilitiesService {
       throw new NotFoundException('لم يتم العثور على ملف الموظف');
     }
 
-    return this.prisma.attendance.findMany({
+    const attendances = await this.prisma.attendance.findMany({
       where: {
         employeeProfileId: user.employeeProfile.id,
         date: { gte: start, lt: end },
       },
       orderBy: { date: 'asc' },
     });
+
+    const summaryResult = this.statsHelper.computePeriodSummary(attendances);
+
+    return {
+      summary: summaryResult.summary,
+      records: summaryResult.records,
+    };
   }
 
   async latestMonthReport(managerUserId: string, startDate: string) {
@@ -185,8 +290,16 @@ export class UtilitiesService {
     });
 
     if (!admin) throw new NotFoundException('لم يتم العثور على حساب المدير');
-    return admin.subordinates;
+
+    return admin.subordinates.map((sub: any) => {
+      const summaryResult = this.statsHelper.computePeriodSummary(sub.attendances);
+      return {
+        ...sub,
+        periodSummary: summaryResult.summary,
+      };
+    });
   }
+
 
   // ─────────────────────────────────────────────────────────────
   // حالة الحضور اليومي للموظف
@@ -222,30 +335,67 @@ export class UtilitiesService {
   // ─────────────────────────────────────────────────────────────
   // البحث عن مستخدم
   // ─────────────────────────────────────────────────────────────
-  async searchUsers(search: string) {
+  async searchUsers(
+    search: string,
+    page: number = 1,
+    limit: number = 10,
+    roleFilter?: string,
+    includeDiscipline: boolean = false,
+  ) {
     try {
-      const result = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { fullName: { contains: search, mode: 'insensitive' } },
-            { email: { contains: search, mode: 'insensitive' } },
-            { phone: { contains: search, mode: 'insensitive' } },
-          ],
-        },
-        include: {
-          adminProfile: true,
-          employeeProfile: {
-            include: { department: true, shift: true },
-          },
-        },
-      });
+      const skip = (page - 1) * limit;
+      const where: any = {
+        OR: [
+          { fullName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } },
+        ],
+      };
 
-      if (!result || result.length === 0) return [];
-      return result;
+      if (roleFilter && roleFilter !== 'all') {
+        where.role = roleFilter;
+      }
+
+      const [results, total] = await Promise.all([
+        this.prisma.user.findMany({
+          where,
+          skip,
+          take: limit,
+          include: {
+            adminProfile: true,
+            employeeProfile: { include: { department: true, shift: true } },
+          },
+        }),
+        this.prisma.user.count({ where }),
+      ]);
+
+      let enrichedResults: any[] = results;
+      if (includeDiscipline) {
+        enrichedResults = await Promise.all(
+          results.map(async (u) => {
+            if (u.employeeProfile) {
+              const enriched = await this.statsHelper.enrichEmployeeData(u.employeeProfile);
+              return { ...u, employeeProfile: enriched };
+            }
+            return u;
+          })
+        );
+      }
+
+      return {
+        data: enrichedResults,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
     } catch (e) {
-      throw new UnauthorizedException('حدث خطأ في البحث');
+      throw new UnauthorizedException('حدث خطأ في البحث: ' + e?.message);
     }
   }
+
 
   // ─────────────────────────────────────────────────────────────
   // automaticallyCheckOut - الانصراف التلقائي (Cron Job)

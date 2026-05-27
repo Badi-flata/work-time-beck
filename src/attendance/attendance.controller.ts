@@ -3,6 +3,7 @@ import { AttendanceService } from './attendance.service';
 import { Auth } from 'src/core/decorators/golebl.auth.decorator';
 import { Role } from '@prisma/client';
 import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
+import { SubmitExcuseDto } from './dto/submit-excuse.dto';
 
 @Auth(Role.EMPLOYEE)
 @Controller('attendance')
@@ -17,7 +18,20 @@ export class AttendanceController {
 
   // POST /attendance/check-out
   @Post('check-out')
-  checkOut(@CurrentUser('userId') userId: string) {
-    return this.attendanceService.checkOut(userId);
+  checkOut(
+    @CurrentUser('userId') userId: string,
+    @Body() body?: { employeeNote?: string },
+  ) {
+    return this.attendanceService.checkOut(userId, body?.employeeNote);
+  }
+
+  // POST /attendance/submit-excuse
+  @Post('submit-excuse')
+  submitExcuse(
+    @CurrentUser('userId') userId: string,
+    @Body() dto: SubmitExcuseDto,
+  ) {
+    return this.attendanceService.submitExcuse(userId, dto);
   }
 }
+

@@ -19,6 +19,8 @@ export class UpdateEmployeeDto {
     @IsOptional()
     phone?: string; 
 
-
+    @IsString()
+    @IsOptional()
+    jobTitle?: string;
 }
 

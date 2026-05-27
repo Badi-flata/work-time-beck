@@ -1,0 +1,133 @@
+version: "2"
+type: backend
+tech_stack:
+  - NestJS
+  - TypeScript
+  - Prisma
+  - PostgreSQL
+features:
+  - name: User Management API
+    description: CRUD and login operations for users
+    files:
+      - src/users/users.controller.ts
+      - src/users/users.service.ts
+    endpoints:
+      - method: POST
+        path: /users/logUp
+        description: Sign up a new user (SUPER_ADMIN or EMPLOYEE)
+        auth_required: false
+      - method: POST
+        path: /users/loginIn
+        description: User login to receive JWT token
+        auth_required: false
+      - method: GET
+        path: /users/search_Word
+        description: Search users by keyword
+        auth_required: true
+      - method: PATCH
+        path: /users/updateMyProfile
+        description: Update profile of current user
+        auth_required: true
+      - method: DELETE
+        path: /users/deleteMyProfile
+        description: Delete profile of current user
+        auth_required: true
+  - name: Managing API
+    description: Manager-specific endpoints to manage employees, shifts, and reports
+    files:
+      - src/managing/managing.controller.ts
+      - src/managing/managing.service.ts
+    endpoints:
+      - method: GET
+        path: /managing/dashboard
+        description: Get dashboard statistics for a date
+        auth_required: true
+      - method: POST
+        path: /managing/add-employee/:id
+        description: Associate employee with manager
+        auth_required: true
+      - method: GET
+        path: /managing/my-employees
+        description: Get manager's employees with pagination
+        auth_required: true
+      - method: POST
+        path: /managing/make-a-shift
+        description: Create new shift
+        auth_required: true
+      - method: PATCH
+        path: /managing/audit-employee
+        description: Audit employee (salary, shift, department, working status)
+        auth_required: true
+      - method: DELETE
+        path: /managing/delete-employee/:id
+        description: Remove employee profile
+        auth_required: true
+      - method: GET
+        path: /managing/weekly-report
+        description: Get weekly report for all employees under manager
+        auth_required: true
+      - method: GET
+        path: /managing/monthly-report
+        description: Get monthly report for all employees under manager
+        auth_required: true
+      - method: GET
+        path: /managing/employee-weekly-report/:id
+        description: Get employee weekly report
+        auth_required: true
+      - method: GET
+        path: /managing/employee-monthly-report/:id
+        description: Get employee monthly report
+        auth_required: true
+      - method: POST
+        path: /managing/auto-checkout
+        description: Trigger auto-checkout for employees
+        auth_required: true
+      - method: POST
+        path: /managing/salary-deduction/:employeeId
+        description: Calculate daily salary deduction for employee
+        auth_required: true
+  - name: Attendance API
+    description: Attendance check-in and check-out
+    files:
+      - src/attendance/attendance.controller.ts
+      - src/attendance/attendance.service.ts
+    endpoints:
+      - method: POST
+        path: /attendance/check-in
+        description: Record check-in
+        auth_required: true
+      - method: POST
+        path: /attendance/check-out
+        description: Record check-out
+        auth_required: true
+  - name: Employee API
+    description: Employee-specific endpoints
+    files:
+      - src/employee/employee.controller.ts
+      - src/employee/employee.service.ts
+    endpoints:
+      - method: GET
+        path: /employee/profile
+        description: Retrieve employee profile
+        auth_required: true
+      - method: POST
+        path: /employee/set-manager
+        description: Assign a manager
+        auth_required: true
+      - method: PATCH
+        path: /employee/update-profile
+        description: Update employee details
+        auth_required: true
+      - method: GET
+        path: /employee/weekly-report
+        description: Get current employee's weekly report
+        auth_required: true
+      - method: GET
+        path: /employee/monthly-report
+        description: Get current employee's monthly report
+        auth_required: true
+      - method: GET
+        path: /employee/today-status
+        description: Get current employee's today attendance status
+        auth_required: true
+known_limitations: []

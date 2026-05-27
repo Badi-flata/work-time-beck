@@ -9,10 +9,12 @@ import {
 } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { AttendanceStatus } from '@prisma/client';
+import { AttendanceStatus, ExcuseType } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { SubmitExcuseDto } from './dto/submit-excuse.dto';
 
 const TZ = 'Asia/Riyadh';
+
 
 @Injectable()
 export class AttendanceService {
@@ -73,7 +75,7 @@ export class AttendanceService {
    * 2. التحقق من وجود سجل حضور لليوم وعدم تسجيل الانصراف مسبقاً
    * 3. حساب إجمالي وقت العمل ودقائق المغادرة المبكرة
    */
-  async checkOut(employeeUserId: string) {
+  async checkOut(employeeUserId: string, employeeNote?: string) {
     const nowZoned = toZonedTime(Date.now(), TZ);
     const today = startOfDay(nowZoned);
 
@@ -105,7 +107,63 @@ export class AttendanceService {
         checkOut: nowZoned,
         totalWorkedMinutes: totalWorked,
         earlyLeaveMinutes: earlyLeave,
+        ...(employeeNote !== undefined && { employeeNote }),
       },
     });
+  }
+
+  /**
+   * submitExcuse - تقديم عذر
+   */
+  async submitExcuse(userId: string, dto: SubmitExcuseDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { employeeProfile: true }
+    });
+    if (!user || !user.employeeProfile) {
+      throw new NotFoundException('لم يتم العثور على ملف الموظف');
+    }
+
+    const today = startOfDay(toZonedTime(Date.now(), TZ));
+
+    let attendance: any = null;
+    if (dto.attendanceId) {
+      attendance = await this.prisma.attendance.findUnique({
+        where: { id: dto.attendanceId }
+      });
+    } else {
+      attendance = await this.prisma.attendance.findUnique({
+        where: { employeeProfileId_date: { employeeProfileId: user.employeeProfile.id, date: today } }
+      });
+    }
+
+    if (!attendance) {
+      throw new NotFoundException('لم يتم العثور على سجل الحضور المرتبط');
+    }
+
+    const excuse = await this.prisma.excuse.create({
+      data: {
+        id: randomUUID(),
+        reason: dto.reason,
+        type: dto.type,
+        attendanceId: attendance.id,
+        submittedById: user.id,
+        isApproved: false,
+      }
+    });
+
+    if (dto.type === 'IN') {
+      await this.prisma.attendance.update({
+        where: { id: attendance.id },
+        data: { excuseReasonIn: dto.reason }
+      });
+    } else {
+      await this.prisma.attendance.update({
+        where: { id: attendance.id },
+        data: { excuseReasonOut: dto.reason }
+      });
+    }
+
+    return excuse;
   }
 } 

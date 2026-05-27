@@ -8,17 +8,20 @@ import { EmployeeModule } from './employee/employee.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { UtilityModule } from './utilities/utilities.module';
 import { AuthModule } from './core/auth/auth.module';
+import { DepartmentModule } from './department/department.module';
 
 @Module({
   imports: [
     AuthModule,
-    UsersModule, 
+    UsersModule,
     ManagingModule,
-    EmployeeModule, 
+    EmployeeModule,
     AttendanceModule,
-    UtilityModule
+    UtilityModule,
+    DepartmentModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],
 })
 export class AppModule { }
+

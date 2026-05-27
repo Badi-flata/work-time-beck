@@ -5,9 +5,13 @@ import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
 import { Auth } from '../core/decorators/golebl.auth.decorator';
 import { Role } from '@prisma/client';
 import { shift } from './dto/shfit.dto';
+import { UpdateShiftDto } from './dto/update-shift.dto';
 import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
 import { format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
+import { StatisticsHelperService } from '../utilities/statistics-helper.service';
+
+
 
 const TZ = 'Asia/Riyadh';
 
@@ -21,18 +25,21 @@ const TZ = 'Asia/Riyadh';
 export class ManagingController {
   constructor(
     private readonly managingService: ManagingService,
-    private readonly utility: UtilitiesService
+    private readonly utility: UtilitiesService,
+    private readonly statsHelper: StatisticsHelperService,
   ) {}
 
-  // GET /managing/dashboard?date=2026-05-18
+  // GET /managing/dashboard?date=2026-05-18&status=LATE
   @Get('dashboard')
   async getDashboard(
     @CurrentUser('userId') userId: string,
-    @Query('date') date?: string
+    @Query('date') date?: string,
+    @Query('status') status?: string,
   ) {
     const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
-    return this.utility.getDashboard(userId, date || defaultDate);
+    return this.utility.getDashboard(userId, date || defaultDate, status);
   }
+
 
   // إضافة عامل لدى المدير 
   // add worker to manager
@@ -58,6 +65,25 @@ export class ManagingController {
   makeAShift(@Body() shift: shift) {
     return this.managingService.newShfit(shift);
   }
+
+  // GET /managing/shifts
+  @Get('shifts')
+  getShifts(@CurrentUser('userId') managerUserId: string) {
+    return this.managingService.getShifts(managerUserId);
+  }
+
+  // PATCH /managing/shifts/:id
+  @Patch('shifts/:id')
+  updateShift(@Param('id') shiftId: string, @Body() dto: UpdateShiftDto) {
+    return this.managingService.updateShift(shiftId, dto);
+  }
+
+  // DELETE /managing/shifts/:id
+  @Delete('shifts/:id')
+  deleteShift(@Param('id') shiftId: string) {
+    return this.managingService.deleteShift(shiftId);
+  }
+
 
   // تدقيق العامل لدى المدير 
   // audit employee to manager  
@@ -95,6 +121,36 @@ export class ManagingController {
   @Get('employee-monthly-report/:id')
   getEmployeeMonthlyReport(@Param('id') employeeUserId: string, @Query('startDate') startDate: string) {
     return this.utility.getMonthlyReport(employeeUserId, startDate);
+  }
+
+  // GET /managing/daily-report
+  @Get('daily-report')
+  async getDailyReport(
+    @CurrentUser('userId') userId: string,
+    @Query('date') date?: string,
+  ) {
+    return this.utility.getDailyReport(userId, date);
+  }
+
+  // GET /managing/discipline-rate/:employeeProfileId
+  @Get('discipline-rate/:employeeProfileId')
+  getDisciplineRate(
+    @Param('employeeProfileId') id: string,
+    @Query('days') days?: string,
+  ) {
+    return this.statsHelper.computeDisciplineRate(id, days ? parseInt(days, 10) : 30);
+  }
+
+  // GET /managing/pending-excuses
+  @Get('pending-excuses')
+  getPendingExcuses(@CurrentUser('userId') managerUserId: string) {
+    return this.managingService.getPendingExcuses(managerUserId);
+  }
+
+  // POST /managing/approve-excuse/:id
+  @Post('approve-excuse/:id')
+  approveExcuse(@Param('id') excuseId: string) {
+    return this.managingService.approveExcuse(excuseId);
   }
 
   // ─── الانصراف التلقائي (Cron / Admin trigger) ─────────────────

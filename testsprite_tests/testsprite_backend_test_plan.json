@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "test_user_signup_with_valid_data",
+    "description": "Verify that POST /users/logUp successfully registers a new user with valid SUPER_ADMIN or EMPLOYEE data and returns a 201 status with a signup response and token."
+  },
+  {
+    "id": "TC002",
+    "title": "test_user_login_with_valid_credentials",
+    "description": "Verify that POST /users/loginIn authenticates a user with valid credentials and returns a 201 status with a token and user profile."
+  },
+  {
+    "id": "TC003",
+    "title": "test_search_users_with_valid_jwt_and_keyword",
+    "description": "Verify that GET /users/search_Word returns a 200 status with an array of matched users when called with a valid JWT and search keyword."
+  },
+  {
+    "id": "TC004",
+    "title": "test_update_profile_with_valid_jwt_and_payload",
+    "description": "Verify that PATCH /users/updateMyProfile updates the current logged-in user's profile and returns a 200 status with updated user details when provided with a valid JWT and valid update payload."
+  },
+  {
+    "id": "TC005",
+    "title": "test_delete_profile_with_valid_jwt",
+    "description": "Verify that DELETE /users/deleteMyProfile deletes the current logged-in user's profile and returns a 200 status with deletion confirmation when called with a valid JWT."
+  },
+  {
+    "id": "TC006",
+    "title": "test_attendance_check_in_with_valid_jwt",
+    "description": "Verify that POST /attendance/check-in records an employee's check-in, calculates delay or on-time status, and returns a 201 status with the attendance record when called with a valid employee JWT."
+  },
+  {
+    "id": "TC007",
+    "title": "test_attendance_check_out_after_check_in",
+    "description": "Verify that POST /attendance/check-out records an employee's check-out, calculates early leave and worked time, and returns a 201 status with the updated attendance record when called after a valid check-in."
+  },
+  {
+    "id": "TC008",
+    "title": "test_manager_dashboard_with_valid_jwt_and_date",
+    "description": "Verify that GET /managing/dashboard returns a 200 status with dashboard statistics for the specified date when called with a valid manager JWT and date parameter."
+  },
+  {
+    "id": "TC009",
+    "title": "test_employee_profile_retrieval_with_valid_jwt",
+    "description": "Verify that GET /employee/profile returns a 200 status with the user profile and EmployeeProfile including department and shift details when called with a valid employee JWT."
+  },
+  {
+    "id": "TC010",
+    "title": "test_employee_today_status_with_valid_jwt",
+    "description": "Verify that GET /employee/today-status returns a 200 status with today's attendance status and shift information when called with a valid employee JWT."
+  }
+]

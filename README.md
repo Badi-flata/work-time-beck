@@ -1,72 +1,138 @@
 # نظام إدارة الحضور والانصراف (NestJS + Prisma + PostgreSQL)
 ## Attendance & Departure Management Server
 
-مرحباً بك في المستودع البرمجي لنظام إدارة الحضور والانصراف الخلفي، المبني باستخدام إطار العمل **NestJS** ومحرك الاتصال **Prisma ORM** وقاعدة بيانات **PostgreSQL**.
+مرحباً بك في المستودع البرمجي المحدث لنظام إدارة الحضور والانصراف الخلفي (WorkTime Backend)، المبني باستخدام إطار العمل **NestJS** ومحرك الاتصال **Prisma ORM** وقاعدة بيانات **PostgreSQL**.
 
-تم تصميم هذا الخادم بأسلوب برمجية متطور وبنية هندسية متينة لدعم تطبيقات الويب والجوال المتخصصة في تتبع ساعات العمل، مع توفير واجهات برمجية متكاملة لكل من **المدير (SUPER_ADMIN)** و **الموظف/العامل (EMPLOYEE)**.
-
----
-
-## 🏗 البنية البرمجية والهندسة (Architecture & Design)
-
-يتبع المشروع أفضل معايير البرمجة النظيفة (Clean Code) والبنية الطبقية لـ NestJS:
-- **Controllers (أجهزة التحكم):** لمعالجة الطلبات وإرجاع الردود المناسبة مع التحقق من الهوية والصلاحيات.
-- **Services (الخدمات):** تحتوي على منطق العمل الأساسي والعمليات الحسابية للحضور والانصراف.
-- **Decorators & Guards:** حماية المسارات والتحقق من الأدوار واستخلاص بيانات المستخدم بأمان.
-- **Prisma Service:** كطبقة اتصال مجهزة بـ Connection Pool متين مع PostgreSQL.
+تم تصميم وتطوير هذا الخادم بأسلوب برمجي متطور وبنية هندسية متينة متوافقة بالكامل مع متطلبات واجهات الويب والجوال المتخصصة في تتبع ساعات العمل، مع توفير واجهات برمجية متكاملة لكل من **المدير (SUPER_ADMIN)** و **الموظف/العامل (EMPLOYEE)**.
 
 ---
 
-## 📊 قاعدة البيانات والعلاقات (Database Schema)
+## 🏗️ التحديثات الجديدة وسد الثغرات (New Updates & Gap-Closing)
 
-تتألف قاعدة البيانات من 6 جداول رئيسية مترابطة بعلاقات وثيقة:
-1. **User (المستخدم):** الحساب الرئيسي لتسجيل الدخول والمصادقة (يحتوي على البريد وكلمة المرور المشفرة والدور).
-2. **AdminProfile (ملف المدير):** مخصص للمديرين لإدارة الأقسام والاطلاع على الموظفين الخاضعين لإشرافهم المباشر.
-3. **EmployeeProfile (ملف الموظف):** يحتوي على تفاصيل العمل مثل الراتب، الوردية، القسم، والمدير المشرف.
-4. **Department (القسم):** الأقسام الإدارية والتشغيلية في المنشأة.
-5. **Shift (الوردية/المناوبة):** تحدد أوقات الحضور والانصراف وفترة السماح بالدقائق لكل قسم.
-6. **Attendance (سجل الحضور):** يحتوي على أوقات الحضور والانصراف الفعلي، الدقائق المتأخرة، دقائق المغادرة المبكرة، وإجمالي دقائق العمل، بالإضافة إلى الملاحظات الإدارية.
-
----
-
-## 🔑 نظام الأمان والمصادقة (Security & Authentication)
-
-- **تشفير كلمات المرور:** يتم استخدام مكتبة `bcrypt` لتشفير كلمات المرور بمستوى Salt قوي (10 جولات) عند التسجيل، ومقارنتها بشكل آمن عند تسجيل الدخول.
-- **حماية الممرات (JWT Tokens):** يتم توليد الـ Access Token يحتوي على (اسم المستخدم، معرف المستخدم، والدور الإداري) عند تسجيل الدخول الناجح.
-- **الحراس المخصصون (Custom Guards & Decorators):**
-  - `@Auth(Role.SUPER_ADMIN)`: يقصر الوصول للمسار الإداري على المديرين فقط.
-  - `@Auth(Role.EMPLOYEE)`: يقصر الوصول للمسار على الموظفين فقط.
-  - `@CurrentUser('userId')`: لاستخراج معرف المستخدم المسجل بأمان من كود الـ JWT مباشرة من الطلب كسلسلة نصية (string).
-  - `@Public()`: للسماح بالوصول العام للمسارات مثل تسجيل الدخول وإنشاء الحساب دون الحاجة لـ Token.
+تم إجراء تحديثات برمجية وهيكلية شاملة لسد كافة الفجوات وضمان التوافق المطلق مع شاشات النظام:
+1. **الطبقة الحسابية المركزية (`StatisticsHelper`)**: عزل كامل للعمليات الإحصائية والحسابية لضمان عدم تكرار الكود وسهولة الصيانة.
+2. **تفعيل أمن الاتصال والتحقق**: تفعيل الـ CORS لحل مشكلة الاتصال مع الواجهات الأمامية، وتفعيل الـ `ValidationPipe` العالمي لضمان فلترة وتدقيق صحة المدخلات.
+3. **موديول الأقسام CRUD كامل (`Department Module`)**: إضافة إمكانية العرض، التفاصيل، الإنشاء، التعديل، والحذف الآمن للأقسام.
+4. **موديول الورديات CRUD كامل (`Shift CRUD`)**: إضافة إمكانية تعديل وحذف وعرض الورديات التابعة لأقسام المدير بشكل آمن.
+5. **نظام الأعذار وملاحظات الموظفين**: إتاحة كتابة الملاحظات للموظف عند الانصراف، وتقديم الأعذار (تأخر/خروج مبكر)، مع إمكانية مراجعة وقبول الأعذار من طرف المدير.
+6. **التقرير اليومي التنفيذي**: توفير إحصائيات متقدمة مثل مؤشر انضباط الفريق، والترتيب التراكمي للموظفين الأكثر انضباطاً، ورسومات بيانية جاهزة بالنسب المئوية.
+7. **مرشح استثناءات ذكي ومُعرّب**: تعديل معالج الأخطاء ليرد برسائل عربية مخصصة لكل جدول في قاعدة البيانات في حالات التعارض، مع حماية أمن البيانات الفنية.
 
 ---
 
-## 🚀 الميزات والوظائف الأساسية (Core Features)
+## 📊 الطبقة المركزية للحسابات الإحصائية (Centralized Computation Layer)
 
-### 1. لوحة تحكم تفاعلية للمدير (Manager Dashboard)
-تمكن المدير من الحصول على كشف فوري وحي لليوم الحالي:
-- إجمالي عدد الموظفين المشرف عليهم.
-- عدد الحاضرين (الحاضرين في الوقت المناسب أو المتأخرين).
-- عدد الغائبين (سواء ليس لديهم سجل أو حالتهم الغياب).
-- عدد الموظفين الحاصلين على عذر إداري (EXCUSED).
-- عدد المتأخرين والموظفين الذين حضروا بالوقت المحدد بدقة.
+تم بناء **`StatisticsHelperService`** كطبقة برمجية جامعة ومركزية لتوحيد جميع الحسابات الرياضية والإحصائية في النظام وتجنب تكرار الكود في الـ Endpoints المختلفة. تحتوي هذه الخدمة على 5 دوال أساسية:
 
-### 2. الحضور اليومي للموظف (Daily Attendance Process)
-- **تسجيل الحضور (Check-In):** يقوم النظام بالتحقق من الوردية وتوقيت الحضور، وحساب دقائق التأخير بعد تخطي فترة السماح (Grace Period) تلقائياً، وتعيين الحالة إلى (LATE) أو (ON_TIME).
-- **تسجيل الانصراف (Check-Out):** يقوم بحساب إجمالي وقت العمل الفعلي بالدقائق، بالإضافة إلى دقائق المغادرة المبكرة (Early Leave) تلقائياً في حال انصراف العامل قبل انتهاء ورديته.
+### 1. `summarizeAttendances(attendances: any[]): AttendanceSummary`
+* **نوع الدالة:** دالة نقية (Pure Function) — لا تجري أي استعلامات في قاعدة البيانات.
+* **المدخلات:** مصفوفة سجلات حضور خام (من قاعدة البيانات) لأي فترة زمنية (يوم، أسبوع، شهر، أو فترة مخصصة).
+* **المخرجات:** ملخص إحصائي كامل وموحد يحتوي على:
+  * `totalDays`: إجمالي الأيام المسجلة.
+  * `presentDays`: عدد أيام الحضور الفعلي (في الوقت المناسب + التأخير).
+  * `onTimeDays` & `lateDays`: تفصيل الحاضرين في الوقت والمحرومين من فترة السماح.
+  * `absentDays` & `excusedDays` & `escapedDays`: تعداد الغائبين والمعذورين والموظفين الذين انصرفوا دون تسجيل خروج.
+  * `earlyDepartureCount`: عدد مرات الخروج المبكر قبل نهاية الوردية.
+  * `totalWorkedMinutes` & `totalWorkedHours`: إجمالي دقائق وساعات العمل الفعلي بدقة (مقرباً لمنزلة عشرية واحدة).
+  * `totalDelayMinutes` & `totalEarlyLeaveMinutes`: إجمالي دقائق التأخير والخروج المبكر التراكمية.
 
-### 3. إدارة الموظفين والورديات (Staff & Shift Management)
-- **إضافة عامل للمدير:** إمكانية ربط أي عامل بالمدير المشرف.
-- **حذف عامل:** فك ارتباط العامل من المدير وتعيين المشرف كـ `null` دون حذف بيانات العامل التاريخية لضمان سلامة البيانات.
-- **تحديث الملف الإداري:** تعديل الراتب، حالة العمل (نشط/غير نشط)، وتغيير الوردية.
-- **إنشاء ورديات عمل:** مرونة كاملة للمدير في إنشاء ورديات عمل بأوقات بدء وانتهاء وفترات سماح مخصصة.
-- **البحث الآمن:** إمكانية البحث عن أي موظف أو مدير عن طريق الاسم، البريد الإلكتروني، أو الهاتف باستخدام خوارزمية بحث Prisma آمنة ومقاومة للثغرات البرمجية.
+### 2. `computeDisciplineRate(employeeProfileId: string, days?: number): Promise<DisciplineRate>`
+* **الوصف:** تحسب معدل التزام وانضباط الموظف كنسبة مئوية خلال آخر N يوم (الافتراضي 30 يوماً).
+* **المعادلة:** `(أيام الحضور في الوقت المناسب ÷ إجمالي الأيام المسجلة) × 100`.
+* **التقييم التلقائي:**
+  * **ممتاز (Excellent):** إذا كانت النسبة >= 95%.
+  * **جيد جداً (Very Good):** إذا كانت النسبة بين 85% و 94%.
+  * **جيد (Good):** إذا كانت النسبة بين 70% و 84%.
+  * **يحتاج تحسين (Needs Improvement):** إذا كانت النسبة أقل من 70%.
 
-### 4. كشف السجلات التاريخية والتقارير (Reports & History logs)
-- **للموظف:** استعراض سجلات حضوره الأسبوعية والشهرية التفصيلية.
-- **للمدير:**
-  - استعراض سجل أسبوعي أو شهري لجميع الموظفين التابعين له مع تفاصيل الحضور لكل يوم.
-  - استعراض سجل أسبوعي أو شهري تفصيلي لموظف محدد لديه.
+### 3. `computeDashboardStats(subordinates: any[]): DashboardStats`
+* **الوصف:** تقوم بتصنيف الموظفين لليوم الحالي لحساب لوحة تحكم المدير، وتوزيعهم في قوائم تفصيلية بناءً على حالتهم الحالية (حاضر، غائب، متأخر، معذور، هرب)، مع حساب عدادات الخروج المبكر، وتعداد من طُبقت عليهم خصومات مالية، والموظفين الذين انصرفوا أو الذين لم يسجلوا خروجاً بعد.
+
+### 4. `enrichEmployeeData(employeeProfile: any, options?: any): Promise<EnrichedEmployee>`
+* **الوصف:** تثري الملف التعريفي والمهني للموظف بإدراج إحصائيات انضباطه التراكمية وملخص حضور آخر 30 يوماً تلقائياً في الطلب لتقليل عدد الاستعلامات من الواجهة الأمامية.
+
+### 5. `computePeriodSummary(attendances: any[]): PeriodSummary`
+* **الوصف:** تأخذ سجلات الحضور لفترة دورية محددة (أسبوع أو شهر مثلاً)، وتحسب ملخص الفترة بدقة وتعيد الملفات الخام مع الملخص جاهزاً للرسم البياني أو العرض المباشر.
+
+---
+
+## 🖥️ ربط مسارات الـ API مع شاشات النظام (API Endpoints & Screen Mapping)
+
+تمت إعادة هيكلة وتسمية شاشات النظام في مجلد **`workTime_screens/screens`** باللغتين العربية والإنجليزية لتكون معبرة بالكامل عن محتواها الفعلي. أدناه جدول ربط كامل بين كل Endpoint والشاشة التي تعتمد عليه:
+
+### 🔓 الممرات العامة (Public Route APIs)
+
+| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
+| :--- | :--- | :--- | :--- | :--- |
+| `/users/logUp` | `POST` | شاشة تسجيل حساب مدير / شاشة تسجيل حساب موظف | Manager Sign Up / Employee Sign Up | `Manager_Sign_Up_تسجيل_حساب_مدير`<br>`Employee_Sign_Up_تسجيل_حساب_موظف` |
+| `/users/loginIn` | `POST` | شاشة تسجيل الدخول | Login Screen | `Login_Screen_شاشة_تسجيل_الدخول` |
+
+---
+
+### 👥 ممرات المستخدم (Authenticated User APIs)
+
+| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
+| :--- | :--- | :--- | :--- | :--- |
+| `/users/search_Word` | `GET` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
+| `/users/updateMyProfile` | `PATCH` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
+| `/users/deleteMyProfile` | `DELETE` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
+
+---
+
+### 👷 ممرات الموظف (Employee Exclusive APIs) - `@Auth(Role.EMPLOYEE)`
+
+| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
+| :--- | :--- | :--- | :--- | :--- |
+| `/employee/profile` | `GET` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
+| `/employee/set-manager` | `POST` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
+| `/employee/update-profile` | `PATCH` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
+| `/employee/today-status` | `GET` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
+| `/employee/weekly-report` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
+| `/employee/monthly-report` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
+| `/employee/my-dashboard` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
+| `/employee/discipline-rate` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
+| `/attendance/check-in` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
+| `/attendance/check-out` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
+| `/attendance/submit-excuse` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
+
+---
+
+### 👑 ممرات المدير (Manager Exclusive APIs) - `@Auth(Role.SUPER_ADMIN)`
+
+| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
+| :--- | :--- | :--- | :--- | :--- |
+| `/managing/dashboard` | `GET` | لوحة تحكم الحضور الرئيسية للمدير / شاشة نبض الحضور الحي | Manager Dashboard / Live Attendance Pulse | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير`<br>`Live_Attendance_Pulse_نبض_الحضور_الحي` |
+| `/managing/daily-report` | `GET` | التقرير اليومي التنفيذي | Executive Daily Report | `Executive_Daily_Report_التقرير_اليومي_التنفيذي` |
+| `/managing/add-employee/:id` | `POST` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
+| `/managing/delete-employee/:id` | `DELETE` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
+| `/managing/my-employees` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير`<br>`Manager_Dashboard_Table_جدول_الحضور_للمدير` |
+| `/managing/make-a-shift` | `POST` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/managing/shifts` | `GET` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/managing/shifts/:id` | `PATCH` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/managing/shifts/:id` | `DELETE` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/managing/audit-employee` | `PATCH` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
+| `/managing/weekly-report` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
+| `/managing/monthly-report` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
+| `/managing/employee-weekly-report/:id` | `GET` | سجل حضور الموظف التفصيلي | Detailed Attendance Log Screen | `Detailed_Attendance_Log_سجل_الحضور_التفصيلي` |
+| `/managing/employee-monthly-report/:id`| `GET` | سجل حضور الموظف التفصيلي | Detailed Attendance Log Screen | `Detailed_Attendance_Log_سجل_الحضور_التفصيلي` |
+| `/managing/discipline-rate/:employeeProfileId`| `GET` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
+| `/managing/pending-excuses` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
+| `/managing/approve-excuse/:id` | `POST` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
+| `/managing/auto-checkout` | `POST` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
+| `/managing/salary-deduction/:employeeId`| `POST` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
+
+---
+
+### 🏢 ممرات الأقسام (Department APIs) - `@Auth(Role.SUPER_ADMIN)`
+
+| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
+| :--- | :--- | :--- | :--- | :--- |
+| `/department` | `GET` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/department/:id` | `GET` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/department` | `POST` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/department/:id` | `PATCH` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/department/:id` | `DELETE` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
+| `/department/list/names` | `GET` | بطاقة معلومات الموظف / شاشة تسجيل حساب موظف | Employee Info Card / Employee Sign Up | `Employee_Info_Card_بطاقة_معلومات_الموظف`<br>`Employee_Sign_Up_تسجيل_حساب_موظف` |
 
 ---
 
@@ -84,62 +150,34 @@
    ```
 
 2. **تجهيز ملف البيئة (.env):**
-   قم بإنشاء ملف `.env` في جذر المشروع وضع بداخله رابط قاعدة البيانات ومفتاح تشفير JWT:
+   قم بإنشاء ملف `.env` في جذر المشروع وضع بداخله رابط قاعدة البيانات ومفتاح تشفير JWT والمنفذ:
    ```env
    DATABASE_URL="postgresql://postgres:password@localhost:5432/workecTime?schema=public"
    JWT_SECRET="YOUR_SUPER_SECRET_KEY_HERE"
+   PORT=3030
+   CORS_ORIGIN="http://localhost:3000"
    ```
 
-3. **تطبيق قاعدة البيانات وتوليد Prisma Client:**
+3. **تشغيل ترحيل قاعدة البيانات وتوليد Prisma Client:**
    ```bash
-   npx prisma db push
+   npx prisma migrate dev
    npx prisma generate
    ```
 
-4. **تشغيل الخادم في بيئة التطوير المباشرة:**
+4. **تهيئة قاعدة البيانات بالبيانات التجريبية (Seeding):**
+   ```bash
+   npx ts-node -r tsconfig-paths/register src/seed-data.ts
+   ```
+
+5. **تشغيل الخادم في بيئة التطوير المباشرة:**
    ```bash
    npm run start:dev
    ```
 
-5. **بناء المشروع لبيئة الإنتاج:**
+6. **بناء المشروع لبيئة الإنتاج والتحقق:**
    ```bash
    npm run build
    ```
-
----
-
-## 📚 دليل الواجهات البرمجية (API Endpoint Reference)
-
-### 🔓 الممرات العامة (Public Route APIs)
-- `POST /users/logUp` - تسجيل مدير جديد (SUPER_ADMIN) أو عامل جديد (EMPLOYEE) اعتماداً على الحقل `role`.
-- `POST /users/loginIn` - تسجيل الدخول والحصول على رمز المصادقة (Bearer Access Token).
-
-### 👥 ممرات المستخدم (Authenticated User APIs)
-- `GET /users/search_Word?search_Word=...` - بحث شامل وآمن للمستخدمين.
-- `PATCH /users/updateMyProfile` - تحديث الملف الشخصي للمستخدم الحالي.
-- `DELETE /users/deleteMyProfile` - حذف حساب المستخدم الحالي.
-
-### 👷 ممرات الموظف (Employee Exclusive APIs) - `@Auth(Role.EMPLOYEE)`
-- `GET /employee/profile` - جلب ملف الموظف الكامل مع الوردية، القسم، والمدير.
-- `POST /employee/set-manager` - ربط وتعيين مدير للموظف.
-- `PATCH /employee/update-profile` - تحديث بيانات الموظف.
-- `GET /employee/today-status` - جلب حالة الحضور الحالية لليوم الحالي للوردية.
-- `GET /employee/weekly-report?startDate=YYYY-MM-DD` - السجل الأسبوعي للموظف الحالي.
-- `GET /employee/monthly-report?startDate=YYYY-MM-DD` - السجل الشهري للموظف الحالي.
-- `POST /attendance/check-in` - تسجيل حضور يومي فوري للموظف.
-- `POST /attendance/check-out` - تسجيل انصراف يومي فوري للموظف.
-
-### 👑 ممرات المدير (Manager Exclusive APIs) - `@Auth(Role.SUPER_ADMIN)`
-- `GET /managing/dashboard?date=YYYY-MM-DD` - لوحة تحكم إحصائية تفاعلية للحاضرين والغائبين والمتأخرين لليوم المحدد.
-- `POST /managing/add-employee/:id` - إضافة وربط عامل بالمدير الحالي.
-- `DELETE /managing/delete-employee/:id` - فك ارتباط عامل من المدير الحالي.
-- `GET /managing/my-employees` - جلب كشف بجميع العمال المشرف عليهم ورواتبهم وحضورهم التاريخي.
-- `POST /managing/make-a-shift` - إضافة وردية/مناوبة عمل جديدة لقسم معين.
-- `PATCH /managing/audit-employee?email=...&employeeId=...` - تدقيق وتعديل بيانات الموظف (الراتب، الوردية، حالة العمل) وتعديل حالة سجل الحضور اليومي وكتابة الملاحظات الإدارية.
-- `GET /managing/weekly-report?startDate=YYYY-MM-DD` - التقرير الأسبوعي لجميع موظفي المدير.
-- `GET /managing/monthly-report?startDate=YYYY-MM-DD` - التقرير الشهري لجميع موظفي المدير.
-- `GET /managing/employee-weekly-report/:id?startDate=YYYY-MM-DD` - التقرير الأسبوعي لموظف محدد خاضع للإشراف.
-- `GET /managing/employee-monthly-report/:id?startDate=YYYY-MM-DD` - التقرير الشهري لموظف محدد خاضع للإشراف.
 
 ---
 

@@ -26,6 +26,11 @@ enum AttendanceStatus {
   ESCAPY
 }
 
+enum ExcuseType {
+  IN    // عذر تأخر في الحضور
+  OUT   // عذر خروج مبكر أو عدم انصراف
+}
+
 // ----------------------------------------------------
 // Models
 // ----------------------------------------------------
@@ -36,6 +41,7 @@ model User {
   email        String        @unique
   passwordHash String
   fullName     String
+  jobTitle     String?       // المسمى الوظيفي
   imageProfile String?
   role         Role          @default(EMPLOYEE)
   phone        String?
@@ -95,6 +101,7 @@ model EmployeeProfile {
 model Department {
   id             String            @id @default(uuid())
   name           String            @unique
+  description    String?           // وصف القسم
   
   // العلاقات
   employees      EmployeeProfile[]
@@ -136,11 +143,31 @@ model Attendance {
   delayMinutes        Int                @default(0)
   earlyLeaveMinutes   Int                @default(0)
   totalWorkedMinutes  Int                @default(0)
-  adminNotes          String?            @db.Text 
+  adminNotes          String?            @db.Text
+  employeeNote        String?            @db.Text  // ملاحظات الموظف عند الخروج
+
+  // أعذار مرتبطة بهذا السجل
+  excuses             Excuse[]
 
   // ارتباط السجل بالموظف
   employeeProfileId   String
   employeeProfile     EmployeeProfile  @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
 
   @@unique([employeeProfileId, date])
+}
+
+// نموذج الأعذار — لتسجيل أعذار الحضور والانصراف
+model Excuse {
+  id              String      @id @default(uuid())
+  reason          String      @db.Text
+  type            ExcuseType  // IN أو OUT
+  isApproved      Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+
+  // ارتباط بسجل الحضور
+  attendanceId    String
+  attendance      Attendance  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  // من قدم العذر
+  submittedById   String
 }

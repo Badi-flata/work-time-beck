@@ -1,7 +1,19 @@
 {
-  "status": "init",
-  "scope": "codebase",
+  "status": "commited",
   "type": "backend",
-  "localEndpoint": "http://localhost:9000/",
-  "serverPort": 52025
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:3030",
+  "backendAuthType": "Bearer token",
+  "backendCredential": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6Itin2YTYqNix2KfYoSDYp9mE2YXYr9mK2LEiLCJ1c2VySWQiOiJlOTA4YTE1OC1mODg4LTQxODEtOGEzMS0wZmM3OWY3YjQ5ZDciLCJyb2xlIjoiU1VQRVJfQURNSU4iLCJpYXQiOjE3Nzk3MDMzOTIsImV4cCI6MTc3OTc4OTc5Mn0.qT8YckEa84Jg4XgMOcqwzl_KjdTUIHJ00mna2Q_igdI",
+  "executionArgs": {
+    "projectName": "nestjs-prisma",
+    "projectPath": "c:\\Learn\\React-Apps\\chalinlg\\nestjs-prisma",
+    "testIds": [],
+    "additionalInstruction": "Ensure you write python code that uses requests to test the endpoints listed in standard_prd.json. Use the base URL http://localhost:3030. For authenticated requests, use the JWT token from the config.json or sign in first to obtain a token. Do not fail code generation, write the full python test case code using standard assertions.",
+    "serverMode": "development",
+    "envs": {
+      "API_KEY": "sk-user-aW_i5mmLMH9QEb3svxlEAZx6WenHhTrR2gVh24_xUi8aSBVKFm5yBpC2MsY0GNrah7cdfxH4IrbOI4GRijXzoRs4whvElWnx4DDhNt_qGOFFA6TtasBRxC57rPcP0fuRSL4"
+    }
+  },
+  "serverPort": 51108
 }

@@ -4,12 +4,18 @@ import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { shift } from './dto/shfit.dto';
+import { UpdateShiftDto } from './dto/update-shift.dto';
+import { StatisticsHelperService } from '../utilities/statistics-helper.service';
 
 @Injectable()
 export class ManagingService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private statsHelper: StatisticsHelperService,
+  ) { }
+
   //  جلب جميع العمال  لدى المدير 
   // get all workers for the manager
   async getMyWorkers(userId: string, page: number = 1, limit: number = 10) {
@@ -28,54 +34,29 @@ export class ManagingService {
       where: { managerId: manager.id },
       skip,
       take: limit,
-      select: {
+      include: {
         user: {
           select: {
             fullName: true,
             email: true,
             phone: true,
-            // الراتب 
-            // salary
-            employeeProfile: {
-              select: {
-                salary: true,
-                isWorking: true
-              }
-            }
+            jobTitle: true,
           }
         },
-        // جلب جميع الحضور الخاصة بالعامل
-        // get all attendances for the employee
-        attendances: {
-          select: {
-            date: true,
-            checkIn: true,
-            checkOut: true,
-            status: true,
-            delayMinutes: true,
-            earlyLeaveMinutes: true,
-            totalWorkedMinutes: true,
-            adminNotes: true
-          }
-        },
-        // جلب تفاصيل وردية العامل
-        // get employee shift details
-        shift: {
-          select: {
-            name: true,
-            startTime: true,
-            endTime: true,
-            gracePeriodMinIn: true,
-            gracePeriodMinOut: true
-          }
-        }
+        shift: true,
       }
     });
+
+    const enrichedSubordinates = await Promise.all(
+      subordinates.map(sub =>
+        this.statsHelper.enrichEmployeeData(sub, { includeDiscipline: true })
+      )
+    );
 
     const totalPages = Math.ceil(total / limit);
 
     return {
-      data: subordinates,
+      data: enrichedSubordinates,
       meta: {
         total,
         page,
@@ -84,6 +65,7 @@ export class ManagingService {
       }
     };
   }
+
 
   // أضافة عامل لدى المدير 
   // adding worker to the manager
@@ -159,6 +141,14 @@ export class ManagingService {
         }
       });
 
+      // تحديث المسمى الوظيفي على جدول User
+      if (auditDto.jobTitle !== undefined) {
+        await this.prisma.user.update({
+          where: { id: check.id },
+          data: { jobTitle: auditDto.jobTitle },
+        });
+      }
+
       // 2. تحديث سجل حضور الموظف إذا تم إرسال معرف السجل
       if (auditDto.attendanceId && (auditDto.employeestatus || auditDto.adminNotes)) {
         await this.prisma.attendance.update({
@@ -201,6 +191,143 @@ export class ManagingService {
     }
   }
 
+  // جلب الورديات التابعة لأقسام المدير
+  async getShifts(managerUserId: string) {
+    const manager = await this.prisma.adminProfile.findUnique({
+      where: { userId: managerUserId }
+    });
+    if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
+
+    const departments = await this.prisma.department.findMany({
+      where: { managerId: manager.id },
+      select: { id: true, name: true }
+    });
+
+    const deptIds = departments.map(d => d.id);
+
+    const shifts = await this.prisma.shift.findMany({
+      where: { departmentsId: { in: deptIds } },
+      include: {
+        _count: {
+          select: { employees: true }
+        },
+        departments: {
+          select: { name: true }
+        }
+      }
+    });
+
+    return shifts.map(s => ({
+      id: s.id,
+      name: s.name,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      gracePeriodMinIn: s.gracePeriodMinIn,
+      gracePeriodMinOut: s.gracePeriodMinOut,
+      departmentsId: s.departmentsId,
+      departmentName: s.departments.name,
+      employeeCount: s._count.employees,
+    }));
+  }
+
+  // تعديل وردية
+  async updateShift(shiftId: string, dto: UpdateShiftDto) {
+    try {
+      return await this.prisma.shift.update({
+        where: { id: shiftId },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.startTime !== undefined && { startTime: dto.startTime }),
+          ...(dto.endTime !== undefined && { endTime: dto.endTime }),
+          ...(dto.gracePeriodMinIn !== undefined && { gracePeriodMinIn: dto.gracePeriodMinIn }),
+          ...(dto.gracePeriodMinOut !== undefined && { gracePeriodMinOut: dto.gracePeriodMinOut }),
+          ...(dto.departmentsId !== undefined && { departmentsId: dto.departmentsId }),
+        }
+      });
+    } catch (e) {
+      throw new BadRequestException('خطأ في تعديل الوردية: ' + e?.message);
+    }
+  }
+
+  // حذف وردية
+  async deleteShift(shiftId: string) {
+    const employeeCount = await this.prisma.employeeProfile.count({
+      where: { shiftId }
+    });
+
+    if (employeeCount > 0) {
+      throw new BadRequestException(`لا يمكن حذف الوردية لأنها مرتبطة بـ ${employeeCount} موظف. يرجى نقلهم أولاً.`);
+    }
+
+    await this.prisma.shift.delete({
+      where: { id: shiftId }
+    });
+
+    return { message: "تم حذف الوردية بنجاح" };
+  }
+
+  // قبول/مراجعة عذر الموظف
+  async approveExcuse(excuseId: string) {
+    const excuse = await this.prisma.excuse.findUnique({
+      where: { id: excuseId },
+      include: { attendance: true }
+    });
+
+    if (!excuse) throw new NotFoundException('العذر غير موجود');
+
+    const updatedExcuse = await this.prisma.excuse.update({
+      where: { id: excuseId },
+      data: { isApproved: true }
+    });
+
+    if (excuse.type === 'IN') {
+      await this.prisma.attendance.update({
+        where: { id: excuse.attendanceId },
+        data: { isExcusedIn: true }
+      });
+    } else {
+      await this.prisma.attendance.update({
+        where: { id: excuse.attendanceId },
+        data: { isExcusedOut: true }
+      });
+    }
+
+    return {
+      message: 'تم قبول العذر بنجاح وتحديث حالة الحضور',
+      excuse: updatedExcuse
+    };
+  }
+
+  // جلب الأعذار المعلقة للموظفين التابعين للمدير
+  async getPendingExcuses(managerUserId: string) {
+    const manager = await this.prisma.adminProfile.findUnique({
+      where: { userId: managerUserId }
+    });
+    if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
+
+    return this.prisma.excuse.findMany({
+      where: {
+        isApproved: false,
+        attendance: {
+          employeeProfile: { managerId: manager.id }
+        }
+      },
+      include: {
+        attendance: {
+          include: {
+            employeeProfile: {
+              include: {
+                user: {
+                  select: { fullName: true }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
   // حذف عامل من المدير
   // removing employee from manager
   async removeEmployee(employeeUserId: string) {
@@ -215,3 +342,4 @@ export class ManagingService {
     });
   }
 }
+

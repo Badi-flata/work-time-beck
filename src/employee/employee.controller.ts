@@ -47,4 +47,17 @@ export class EmployeeController {
   getTodayStatus(@CurrentUser('userId') userId: string) {
     return this.utility.getTodayAttendanceStatus(userId);
   }
+
+  @Get('my-dashboard')
+  getMyDashboard(@CurrentUser('userId') userId: string) {
+    return this.employeeService.getMyDashboard(userId);
+  }
+
+  @Get('discipline-rate')
+  getMyDisciplineRate(
+    @CurrentUser('userId') userId: string,
+    @Query('days') days?: string,
+  ) {
+    return this.employeeService.getMyDisciplineRate(userId, days ? parseInt(days, 10) : 30);
+  }
 }

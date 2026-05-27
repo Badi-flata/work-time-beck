@@ -46,7 +46,7 @@ export class RolesGuard implements CanActivate {
 
     // إذا لم تُحدَّد أدوار، نسمح للجميع بالمرور
     // If no roles specified, allow everyone through
-    if (!requiredRoles || isPublic) {
+    if (!requiredRoles || requiredRoles.length === 0 || isPublic) {
       return true;
     }
 

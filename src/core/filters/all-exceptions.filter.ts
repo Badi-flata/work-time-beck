@@ -47,8 +47,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
         // للتحقق من أخطاء التحقق (Validation Errors)
         if (Array.isArray(resObj.message)) {
-          message = 'البيانات المدخلة غير صحيحة، يرجى تصحيح الأخطاء التالية:';
-          rawCause = resObj.message; // تفاصيل حقول التحقق للمطور أو لوحة التحكم
+          const validationErrors = resObj.message as string[];
+          message = `البيانات المدخلة غير صحيحة (${validationErrors.length} خطأ). يرجى تصحيح الأخطاء التالية:`;
+          rawCause = {
+            type: 'VALIDATION_ERRORS',
+            errors: validationErrors,
+            count: validationErrors.length,
+          };
         } else {
           message = resObj.message || exception.message;
         }
@@ -98,7 +103,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
             const targetFields = exception.meta?.target
               ? ` (${(exception.meta.target as string[]).join(', ')})`
               : '';
-            message = `تم إدخال قيمة موجودة مسبقاً، هناك تعارض في الحقول الفريدة${targetFields}.`;
+            const model = (exception.meta?.modelName as string) || '';
+            const modelMessages: Record<string, string> = {
+              Department: `يوجد قسم بنفس الاسم مسبقاً${targetFields}. يرجى اختيار اسم مختلف.`,
+              Shift: `توجد وردية بنفس البيانات مسبقاً${targetFields}.`,
+              User: `يوجد مستخدم بنفس البيانات مسبقاً${targetFields}.`,
+              Attendance: `تم تسجيل الحضور مسبقاً لهذا اليوم${targetFields}.`,
+            };
+            message = modelMessages[model]
+              || `تم إدخال قيمة موجودة مسبقاً في الحقول الفريدة${targetFields}.`;
           } else {
             message = 'عذراً، البيانات التي تحاول إدخالها مسجلة مسبقاً في النظام ولا يمكن تكرارها.';
           }
@@ -109,6 +122,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
           } else {
             message = 'حدث خطأ في ترابط البيانات، يرجى التأكد من صحة المعرفات المرتبطة.';
           }
+          break;
+        case 'P2014':
+          status = HttpStatus.BAD_REQUEST;
+          if (isAdmin || isDev) {
+            message = 'لا يمكن حذف هذا السجل لأنه مرتبط ببيانات أخرى. يجب إزالة أو نقل البيانات المرتبطة أولاً.';
+          } else {
+            message = 'لا يمكن إتمام عملية الحذف بسبب ارتباط البيانات.';
+          }
+          break;
+        case 'P2021':
+          status = HttpStatus.INTERNAL_SERVER_ERROR;
+          message = 'خطأ في هيكل قاعدة البيانات. يرجى التواصل مع المطور لتشغيل الترحيل (migration).';
           break;
         case 'P2025':
           status = HttpStatus.NOT_FOUND;
@@ -156,6 +181,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode: status,
       category: errorCategory,
       affectedUser,
+      query: request.query,
+      requestBody: isDev ? request.body : undefined,
       systemMessage: exception instanceof Error ? exception.message : String(exception),
     };
     this.logger.error(
@@ -164,7 +191,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
     );
 
     // 4. صياغة رد الـ JSON النهائي الموحد والآمن
-    // لا يتم إرسال التفاصيل الحساسة (rawCause) إلا للمدير أو المطور في بيئة التطوير
     const showCause = isAdmin || isDev;
 
     response.status(status).json({
@@ -179,3 +205,4 @@ export class AllExceptionsFilter implements ExceptionFilter {
     });
   }
 }
+

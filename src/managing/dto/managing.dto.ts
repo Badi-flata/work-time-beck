@@ -39,5 +39,8 @@ export class ManagingDto {
     @IsString()
     attendanceId?:string;
 
-    
+    @IsOptional()
+    @IsString()
+    jobTitle?:string;
 }
+
