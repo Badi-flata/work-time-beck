@@ -31,12 +31,14 @@
 
 تمثل خدمة **`StatisticsHelperService`** العقل الإحصائي المركزي للنظام. حيث تقوم بعزل جميع المعادلات الرياضية والإحصائية لبيانات الحضور لضمان اتساق تام للبيانات في الواجهات دون تكرار الكود:
 
-*   **حساب إحصائيات لوحة التحكم (`computeDashboardStats`)**:
-    تأخذ مصفوفة الموظفين لليوم الحالي وتفرزهم وتوزعهم تلقائياً إلى قوائم تفصيلية (حاضر، غائب، متأخر، معذور، هرب) مع حساب عدادات الخروج المبكر والخصومات المالية التراكمية.
+*   **حساب إحصائيات لوحة التحكم الموحدة (`computeDashboardStats`)**:
+    تأخذ مصفوفة الموظفين وتوزعهم تلقائياً إلى قوائم تفصيلية حسب حالتهم الفعلية (حاضر، غائب، متأخر، معذور، هرب) مع معالجة وحساب عدادات الخروج المبكر والخصومات.
 *   **حساب نسبة الانضباط التراكمي (`computeDisciplineRate`)**:
     تحسب نسبة التزام الموظف بدقة بناءً على المعادلة: `(أيام الحضور في الوقت المناسب ÷ إجمالي الأيام المسجلة) × 100` وتصنف التزامه برمز عربي واضح (ممتاز >= 95% | جيد جداً >= 85% | جيد >= 70% | يحتاج تحسين < 70%).
 *   **تجميع وتلخيص الحضور (`summarizeAttendances`)**:
     دالة نقية وسريعة للغاية تأخذ أي سجلات حضور لفترة زمنية محددة وتستخلص منها تلقائياً إجمالي الأيام، الغيابات، التأخيرات، دقائق الحضور والتأخر والخروج المبكر، وتعديل إجمالي الساعات الفعلية للعمل مقرباً لمنزلة عشرية واحدة.
+*   **حساب المخالفات والخصومات التقديرية بالذاكرة (`hasDeductibleOffense` & `computeDailyDeduction`)**:
+    تسمح للمدير بحساب الخصومات المالية التقديرية لأي فترة زمنية في الذاكرة دون المساس ببيانات الموظف التراكمية التاريخية، مما يعطي مرونة ودقة عالية في تتبع الأثر المالي ضمن فترات محددة.
 *   **إثراء بيانات الموظفين (`enrichEmployeeData`)**:
     دمج ذكي للإحصائيات التراكمية ومعدل الانضباط مباشرة في كائن ملف الموظف لتقليل الاستعلامات المتكررة وتسهيل عرض بطاقة الموظف في دليل الموظفين.
 *   **ملخص التقارير الدورية (`computePeriodSummary`)**:
@@ -46,6 +48,8 @@
 
 ## ⚙️ 3. الدوال الرئيسية والأساسية في النظام (Core Functions)
 
+*   **السجل الموحد للوحة التحكم (`getDashboardRegistry`)**:
+    النواة الأساسية لعرض لوحة تحكم تفاعلية للمدير بثلاثة أوضاع (`daily` | `weekly` | `monthly`). تقوم بالتقسيم الذكي للأسابيع بشكل مقيد ومغلق داخل حدود الشهر لمنع التداخل بين الشهور، مع ترتيب حقول الاستجابة تنازلياً حسب أولوية اهتمام المدير (الاسم، الحالة/نسبة الانضباط، والخصومات أولاً).
 *   **تسجيل الحضور الفوري (`checkIn`)**:
     تقوم بجلب وردية الموظف ومقارنة وقت الحضور الحالي مع وقت بدء الوردية المعتمد، وحساب دقائق التأخر تلقائياً بعد تجاوز فترة السماح بالدقائق (`gracePeriodMinIn`) وتحديد الحالة (LATE أو ON_TIME).
 *   **تسجيل الانصراف الفوري (`checkOut`)**:
@@ -54,7 +58,7 @@
     يستطيع الموظف تقديم عذر كتابي مبرر مع تحديد نوعه (تأخر في الحضور IN أو انصراف مبكر OUT). ويستطيع المدير مراجعة الأعذار المعلقة والموافقة عليها بضغطة زر، مما يؤدي لتحديث سجل الحضور تلقائياً ووضع علامة "معذور" لتسقط عنه الغرامات والخصومات المالية التراكمية.
 *   **الانصراف التلقائي للورديات المفتوحة (`automaticallyCheckOut`)**:
     خوارزمية ذكية (Cron Job) تبحث عن الموظفين الذين انتهت وردياتهم وتجاوزوا فترة السماح للانصراف دون تسجيل خروج، وتقوم بإخراجهم تلقائياً مع تسجيل حالتهم كـ `ESCAPY` (هروب دون إذن) لضمان انضباط العمل.
-*   **حساب الخصم المالي اليومي (`salaryDeductionDaily`)**:
+*   **حساب الخصم المالي اليومي والتراكمي (`salaryDeductionDaily`)**:
     خوارزمية مالية تحسب الخصومات بدقة: دقائق التأخر دون عذر، ودقائق المغادرة دون عذر (مضروبة في سعر الدقيقة من الراتب الأساسي)، أو خصم يوم عمل كامل للمتهربين كعقوبة رادعة.
 
 ---
@@ -104,25 +108,23 @@
 
 | المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
 | :--- | :--- | :--- | :--- | :--- |
-| `/managing/dashboard` | `GET` | لوحة تحكم الحضور الرئيسية للمدير / شاشة نبض الحضور الحي | Manager Dashboard / Live Attendance Pulse | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير`<br>`Live_Attendance_Pulse_نبض_الحضور_الحي` |
-| `/managing/daily-report` | `GET` | التقرير اليومي التنفيذي | Executive Daily Report | `Executive_Daily_Report_التقرير_اليومي_التنفيذي` |
+| `/managing/dashboard` | `GET` | لوحة التحكم بسجيلات الحضور / شاشة نبض الحضور الحي | attendance Reports Dashboard / Live Attendance Pulse | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور`<br>`Live_Attendance_Pulse_نبض_الحضور_الحي` |
+| `/managing/dashboard-registry` | `GET` | السجل الموحد للوحة التحكم (يومي، أسبوعي، شهري) | Unified Dashboard Registry (Daily, Weekly, Monthly) | `Manager_Dashboard_Main-لوحة_التحكم_الرئيسية_للمدير`<br>`Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
 | `/managing/add-employee/:id` | `POST` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
 | `/managing/delete-employee/:id` | `DELETE` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
-| `/managing/my-employees` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير`<br>`Manager_Dashboard_Table_جدول_الحضور_للمدير` |
+| `/managing/my-employees` | `GET` | لوحة التحكم بسجيلات الحضور | Attendance Reports Dashboard | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
 | `/managing/make-a-shift` | `POST` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
 | `/managing/shifts` | `GET` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
 | `/managing/shifts/:id` | `PATCH` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
 | `/managing/shifts/:id` | `DELETE` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
 | `/managing/audit-employee` | `PATCH` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
-| `/managing/weekly-report` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
-| `/managing/monthly-report` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
 | `/managing/employee-weekly-report/:id` | `GET` | سجل حضور الموظف التفصيلي | Detailed Attendance Log Screen | `Detailed_Attendance_Log_سجل_الحضور_التفصيلي` |
 | `/managing/employee-monthly-report/:id`| `GET` | سجل حضور الموظف التفصيلي | Detailed Attendance Log Screen | `Detailed_Attendance_Log_سجل_الحضور_التفصيلي` |
 | `/managing/discipline-rate/:employeeProfileId`| `GET` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
-| `/managing/pending-excuses` | `GET` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
-| `/managing/approve-excuse/:id` | `POST` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
-| `/managing/auto-checkout` | `POST` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
-| `/managing/salary-deduction/:employeeId`| `POST` | لوحة تحكم الحضور الرئيسية للمدير | Manager Dashboard | `Manager_Dashboard_Main_لوحة_التحكم_الرئيسية_للمدير` |
+| `/managing/pending-excuses` | `GET` | لوحة التحكم بسجيلات الحضور | Attendance Reports Dashboard | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
+| `/managing/approve-excuse/:id` | `POST` | لوحة التحكم بسجيلات الحضور | Attendance Reports Dashboard | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
+| `/managing/auto-checkout` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
+| `/managing/salary-deduction/:employeeId`| `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
 
 ---
 

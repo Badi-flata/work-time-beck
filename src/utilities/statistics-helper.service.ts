@@ -173,8 +173,8 @@ export class StatisticsHelperService {
         earlyDeparture++;
       }
 
-      // عدد المخصوم منهم (من ملف الموظف وليس من سجل اليوم)
-      if ((emp.salaryDeduction ?? 0) > 0) {
+      // إصلاح Bug 2: عدد المخصوم منهم في اليوم الفعلي بدلاً من التراكمي
+      if (att && this.hasDeductibleOffense(att)) {
         deducted++;
       }
 
@@ -273,5 +273,68 @@ export class StatisticsHelperService {
       summary,
       records: attendances,
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 6. hasDeductibleOffense — هل السجل يحتوي على مخالفة خصم
+  // ═══════════════════════════════════════════════════════════════
+  hasDeductibleOffense(att: any): boolean {
+    if (!att) return false;
+    const { status, isExcusedIn, isExcusedOut, delayMinutes, earlyLeaveMinutes } = att;
+
+    // 1. تأخر غير معذور
+    if (!isExcusedIn && (delayMinutes ?? 0) > 0) return true;
+
+    // 2. مغادرة مبكرة غير معذورة
+    if (!isExcusedOut && (earlyLeaveMinutes ?? 0) > 0) return true;
+
+    // 3. هروب دون تسجيل انصراف
+    if (status === AttendanceStatus.ESCAPY) return true;
+
+    return false;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 7. computeDailyDeduction — حساب الخصم اليومي المالي في الذاكرة دون تعديل DB
+  // ═══════════════════════════════════════════════════════════════
+  computeDailyDeduction(att: any, baseSalary: number): number {
+    if (!att || baseSalary <= 0) return 0;
+
+    const { status, isExcusedIn, isExcusedOut, delayMinutes, earlyLeaveMinutes } = att;
+
+    // المعدل الدقيقي: الراتب ÷ (22 يوم × 8 ساعات × 60 دقيقة) = salary ÷ 10560
+    const minuteRate = baseSalary / (22 * 8 * 60);
+    // معدل اليوم الكامل: الراتب ÷ 22 يوم عمل
+    const dailyRate = baseSalary / 22;
+
+    let todayDeduction = 0;
+
+    // 1. خصم التأخر في الحضور (بدون عذر)
+    if (!isExcusedIn && (delayMinutes ?? 0) > 0) {
+      todayDeduction += Math.ceil((delayMinutes ?? 0) * minuteRate);
+    }
+
+    // 2. خصم المغادرة المبكرة (بدون عذر)
+    if (!isExcusedOut && (earlyLeaveMinutes ?? 0) > 0) {
+      todayDeduction += Math.ceil((earlyLeaveMinutes ?? 0) * minuteRate);
+    }
+
+    // 3. ESCAPY: خصم يوم كامل، نأخذ الأعلى لضمان عقوبة كاملة دون مضاعفة
+    if (status === AttendanceStatus.ESCAPY) {
+      const escapyDeduction = Math.ceil(dailyRate);
+      todayDeduction = Math.max(todayDeduction, escapyDeduction);
+    }
+
+    return todayDeduction;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 8. computeDisciplineLabel — إرجاع التقييم العربي بناءً على النسبة
+  // ═══════════════════════════════════════════════════════════════
+  computeDisciplineLabel(rate: number): string {
+    if (rate >= 95) return 'ممتاز';
+    if (rate >= 85) return 'جيد جداً';
+    if (rate >= 70) return 'جيد';
+    return 'يحتاج تحسين';
   }
 }

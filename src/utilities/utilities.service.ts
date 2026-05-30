@@ -11,10 +11,16 @@ import {
   setSeconds,
   setMilliseconds,
   format,
+  startOfMonth,
+  endOfMonth,
 } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { AttendanceStatus } from '@prisma/client';
 import { StatisticsHelperService } from './statistics-helper.service';
+import {
+  DashboardRegistryResponse,
+  DashboardMetrics,
+} from './types/dashboard-registry.types';
 
 const TZ = 'Asia/Riyadh';
 
@@ -80,91 +86,224 @@ export class UtilitiesService {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // GET /managing/daily-report
+  // 1. calculateMonthlyBoundedPeriod — حساب الفترات المقيدة بالشهر
   // ─────────────────────────────────────────────────────────────
-  async getDailyReport(managerId: string, date?: string) {
-    const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
-    const targetDateStr = date || defaultDate;
-    const targetDate = startOfDay(parseISO(targetDateStr));
+  calculateMonthlyBoundedPeriod(mode: 'daily' | 'weekly' | 'monthly', dateAnchor: string) {
+    const parsedDate = parseISO(dateAnchor);
+    const year = parsedDate.getFullYear();
+    const month = parsedDate.getMonth(); // 0-indexed
+    const day = parsedDate.getDate();
 
-    // 1. Get dashboard stats for today
-    const dashboardStats = await this.getDashboard(managerId, targetDateStr);
+    let startDate: Date;
+    let endDate: Date;
+    let periodLabel: string;
 
-    const total = dashboardStats.counts.total;
-    const onTime = dashboardStats.counts.onTime;
+    if (mode === 'daily') {
+      startDate = startOfDay(parsedDate);
+      endDate = addDays(startDate, 1);
+      periodLabel = format(startDate, 'yyyy-MM-dd');
+    } else if (mode === 'weekly') {
+      let startDay: number;
+      let endDay: number;
+      let weekLabel: string;
 
-    // 2. Compute team discipline rate
-    const teamDisciplineRate = total > 0 ? Math.round((onTime / total) * 100) : 100;
+      if (day <= 7) {
+        startDay = 1;
+        endDay = 7;
+        weekLabel = 'الأسبوع الأول';
+      } else if (day <= 14) {
+        startDay = 8;
+        endDay = 14;
+        weekLabel = 'الأسبوع الثاني';
+      } else if (day <= 21) {
+        startDay = 15;
+        endDay = 21;
+        weekLabel = 'الأسبوع الثالث';
+      } else if (day <= 28) {
+        startDay = 22;
+        endDay = 28;
+        weekLabel = 'الأسبوع الرابع';
+      } else {
+        startDay = 29;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        endDay = lastDay;
+        weekLabel = 'الأسبوع الخامس';
+      }
 
-    let teamDisciplineLabel: string;
-    if (teamDisciplineRate >= 95) teamDisciplineLabel = 'ممتاز';
-    else if (teamDisciplineRate >= 85) teamDisciplineLabel = 'جيد جداً';
-    else if (teamDisciplineRate >= 70) teamDisciplineLabel = 'جيد';
-    else teamDisciplineLabel = 'يحتاج تحسين';
+      startDate = startOfDay(new Date(year, month, startDay));
+      endDate = startOfDay(new Date(year, month, endDay + 1));
+      
+      const formattedStart = format(startDate, 'yyyy-MM-dd');
+      const formattedEnd = format(new Date(year, month, endDay), 'yyyy-MM-dd');
+      periodLabel = `${weekLabel}: ${formattedStart} ↔ ${formattedEnd}`;
+    } else {
+      startDate = startOfMonth(parsedDate);
+      endDate = startOfDay(addMonths(startDate, 1));
+      
+      const formattedStart = format(startDate, 'yyyy-MM-dd');
+      const lastDayOfMonth = endOfMonth(parsedDate);
+      const formattedEnd = format(lastDayOfMonth, 'yyyy-MM-dd');
+      periodLabel = `شهر ${format(startDate, 'yyyy-MM')}: ${formattedStart} ↔ ${formattedEnd}`;
+    }
 
-    // 3. Find top disciplined employees & attendance log
+    return { startDate, endDate, periodLabel };
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 2. getDashboardRegistry — الدالة الرئيسية الموحدة للوحة التحكم
+  // ─────────────────────────────────────────────────────────────
+  async getDashboardRegistry(
+    managerId: string,
+    mode: 'daily' | 'weekly' | 'monthly',
+    dateAnchor: string,
+  ): Promise<DashboardRegistryResponse> {
     const admin = await this.prisma.adminProfile.findUnique({
       where: { userId: managerId },
+    });
+
+    if (!admin) {
+      throw new NotFoundException('لم يتم العثور على حساب المدير');
+    }
+
+    // 1. حساب حدود الفترة الزمنية
+    const { startDate, endDate, periodLabel } = this.calculateMonthlyBoundedPeriod(mode, dateAnchor);
+
+    // 2. استعلام جلب المرؤوسين وسجلات حضورهم ضمن الفترة المحددة
+    const subordinates = await this.prisma.employeeProfile.findMany({
+      where: { managerId: admin.id },
       include: {
-        subordinates: {
-          include: {
-            user: {
-              select: { fullName: true, id: true },
-            },
-            attendances: {
-              where: { date: targetDate },
+        user: {
+          select: {
+            fullName: true,
+            jobTitle: true,
+          },
+        },
+        department: {
+          select: {
+            name: true,
+          },
+        },
+        shift: true,
+        attendances: {
+          where: {
+            date: {
+              gte: startDate,
+              lt: endDate,
             },
           },
+          orderBy: { date: 'asc' },
         },
       },
     });
 
-    const topDisciplined: any[] = [];
-    let todayAttendanceLog: any[] = [];
+    // 3. حساب الإحصائيات العلوية (metrics)
+    const totalEmployees = subordinates.length;
+    let presentCount = 0;
+    let lateCount = 0;
+    let excusedCount = 0;
+    let earlyDepartureCount = 0;
+    let deductedCount = 0;
 
-    if (admin) {
-      const employeesWithDiscipline = await Promise.all(
-        admin.subordinates.map(async (sub) => {
-          const rateObj = await this.statsHelper.computeDisciplineRate(sub.id, 30);
-          return {
-            id: sub.id,
-            fullName: sub.user.fullName,
-            rate: rateObj.rate,
-            label: rateObj.label,
-          };
-        }),
+    const tableRows: any[] = [];
+
+    for (const emp of subordinates) {
+      const atts = emp.attendances;
+
+      // أ) حساب الحاضرين الفريدين
+      const hasPresentRecord = atts.some(
+        (a) => a.checkIn && a.status !== AttendanceStatus.ABSENT,
       );
+      if (hasPresentRecord) {
+        presentCount++;
+      }
 
-      employeesWithDiscipline.sort((a, b) => b.rate - a.rate);
-      topDisciplined.push(...employeesWithDiscipline.slice(0, 5));
-
-      todayAttendanceLog = admin.subordinates.map((sub) => {
-        const att = sub.attendances?.[0];
-        return {
-          id: sub.id,
-          fullName: sub.user.fullName,
-          checkIn: att?.checkIn || null,
-          checkOut: att?.checkOut || null,
-          status: att?.status || 'ABSENT',
-        };
+      // حساب عدادات التأخير، الأعذار، الخروج المبكر
+      atts.forEach((a) => {
+        if (a.status === AttendanceStatus.LATE) {
+          lateCount++;
+        }
+        if (a.status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
+          excusedCount++;
+        }
+        if ((a.earlyLeaveMinutes ?? 0) > 0) {
+          earlyDepartureCount++;
+        }
       });
+
+      // حساب الخصومات للفترة
+      let hasPeriodDeductionOffense = false;
+      let periodTotalDeductions = 0;
+
+      atts.forEach((a) => {
+        const dailyDeduction = this.statsHelper.computeDailyDeduction(a, emp.salary ?? 0);
+        if (dailyDeduction > 0) {
+          periodTotalDeductions += dailyDeduction;
+          hasPeriodDeductionOffense = true;
+        }
+      });
+
+      if (hasPeriodDeductionOffense) {
+        deductedCount++;
+      }
+
+      // ب) بناء الصفوف متعددة الأشكال (Polymorphic Table Rows)
+      if (mode === 'daily') {
+        const att = atts[0] ?? null;
+        const dailyDeduction = att ? this.statsHelper.computeDailyDeduction(att, emp.salary ?? 0) : 0;
+
+        tableRows.push({
+          employeeProfileId: emp.id,
+          fullName: emp.user.fullName,                                      // أولوية 1
+          status: att?.status ?? 'ABSENT',                                  // أولوية 2
+          checkIn: att?.checkIn ?? null,                                    // أولوية 3
+          checkOut: att?.checkOut ?? null,                                  // أولوية 4
+          todayDeduction: dailyDeduction,                                   // أولوية 5
+          jobTitle: emp.user.jobTitle,
+          departmentName: emp.department.name,
+          shiftHours: `${emp.shift.startTime} - ${emp.shift.endTime}`,
+          isExcusedIn: att?.isExcusedIn ?? false,
+          isExcusedOut: att?.isExcusedOut ?? false,
+          excuseReasonIn: att?.excuseReasonIn ?? null,
+          excuseReasonOut: att?.excuseReasonOut ?? null,
+        });
+      } else {
+        // weekly | monthly mode
+        const summary = this.statsHelper.summarizeAttendances(atts);
+        const disciplineRate =
+          summary.totalDays > 0
+            ? Math.round((summary.onTimeDays / summary.totalDays) * 100)
+            : 100;
+        
+        tableRows.push({
+          employeeProfileId: emp.id,
+          fullName: emp.user.fullName,                                      // أولوية 1
+          disciplineRate,                                                   // أولوية 2
+          disciplineLabel: this.statsHelper.computeDisciplineLabel(disciplineRate), // أولوية 3
+          periodDeductions: periodTotalDeductions,                          // أولوية 4
+          presentDays: summary.presentDays,
+          absentDays: summary.absentDays,
+          lateDays: summary.lateDays,
+          earlyDepartureCount: summary.earlyDepartureCount,
+          jobTitle: emp.user.jobTitle,
+          departmentName: emp.department.name,
+        });
+      }
     }
 
-    // 4. Chart data: percentages
-    const chartData = {
-      present: total > 0 ? Math.round((dashboardStats.counts.present / total) * 100) : 0,
-      absent: total > 0 ? Math.round((dashboardStats.counts.absent / total) * 100) : 0,
-      late: total > 0 ? Math.round((dashboardStats.counts.late / total) * 100) : 0,
-      excused: total > 0 ? Math.round((dashboardStats.counts.excused / total) * 100) : 0,
+    const metrics: DashboardMetrics = {
+      mode,
+      periodLabel,
+      totalEmployees,
+      presentCount,
+      lateCount,
+      excusedCount,
+      earlyDepartureCount,
+      deductedCount,
     };
 
     return {
-      dashboardStats,
-      teamDisciplineRate,
-      teamDisciplineLabel,
-      topDisciplined,
-      chartData,
-      todayAttendanceLog,
+      metrics,
+      table: tableRows,
     };
   }
 
@@ -203,37 +342,7 @@ export class UtilitiesService {
     };
   }
 
-  async latestWeekReport(managerUserId: string, startDate: string) {
-    const start = startOfDay(parseISO(startDate));
-    const end = addDays(start, 7);
 
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
-      include: {
-        subordinates: {
-          include: {
-            user: {
-              select: { fullName: true, email: true, phone: true },
-            },
-            attendances: {
-              where: { date: { gte: start, lt: end } },
-              orderBy: { date: 'asc' },
-            },
-          },
-        },
-      },
-    });
-
-    if (!admin) throw new NotFoundException('لم يتم العثور على حساب المدير');
-
-    return admin.subordinates.map((sub: any) => {
-      const summaryResult = this.statsHelper.computePeriodSummary(sub.attendances);
-      return {
-        ...sub,
-        periodSummary: summaryResult.summary,
-      };
-    });
-  }
 
   async getAEmployeeWeeklyReport(employeeUserId: string, startDate: string) {
     return this.getWeeklyReport(employeeUserId, startDate);
@@ -268,37 +377,7 @@ export class UtilitiesService {
     };
   }
 
-  async latestMonthReport(managerUserId: string, startDate: string) {
-    const start = startOfDay(parseISO(startDate));
-    const end = addMonths(start, 1);
 
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
-      include: {
-        subordinates: {
-          include: {
-            user: {
-              select: { fullName: true, email: true, phone: true },
-            },
-            attendances: {
-              where: { date: { gte: start, lt: end } },
-              orderBy: { date: 'asc' },
-            },
-          },
-        },
-      },
-    });
-
-    if (!admin) throw new NotFoundException('لم يتم العثور على حساب المدير');
-
-    return admin.subordinates.map((sub: any) => {
-      const summaryResult = this.statsHelper.computePeriodSummary(sub.attendances);
-      return {
-        ...sub,
-        periodSummary: summaryResult.summary,
-      };
-    });
-  }
 
 
   // ─────────────────────────────────────────────────────────────

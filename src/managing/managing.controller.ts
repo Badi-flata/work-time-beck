@@ -101,16 +101,16 @@ export class ManagingController {
     return this.managingService.removeEmployee(id);
   }
 
-  // التقارير الأسبوعية والشهرية للمدير
-
-  @Get('weekly-report')
-  getWeeklyReport(@CurrentUser('userId') managerUserId: string, @Query('startDate') startDate: string) {
-    return this.utility.latestWeekReport(managerUserId, startDate);
-  }
-
-  @Get('monthly-report')
-  getMonthlyReport(@CurrentUser('userId') managerUserId: string, @Query('startDate') startDate: string) {
-    return this.utility.latestMonthReport(managerUserId, startDate);
+  // لوحة التحكم الموحدة وسجلات حضور الموظفين للمدير
+  // GET /managing/dashboard-registry?mode=daily&dateAnchor=2026-05-30
+  @Get('dashboard-registry')
+  async getDashboardRegistry(
+    @CurrentUser('userId') userId: string,
+    @Query('mode') mode: 'daily' | 'weekly' | 'monthly' = 'daily',
+    @Query('dateAnchor') dateAnchor?: string,
+  ) {
+    const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+    return this.utility.getDashboardRegistry(userId, mode, dateAnchor || defaultDate);
   }
 
   @Get('employee-weekly-report/:id')
@@ -121,15 +121,6 @@ export class ManagingController {
   @Get('employee-monthly-report/:id')
   getEmployeeMonthlyReport(@Param('id') employeeUserId: string, @Query('startDate') startDate: string) {
     return this.utility.getMonthlyReport(employeeUserId, startDate);
-  }
-
-  // GET /managing/daily-report
-  @Get('daily-report')
-  async getDailyReport(
-    @CurrentUser('userId') userId: string,
-    @Query('date') date?: string,
-  ) {
-    return this.utility.getDailyReport(userId, date);
   }
 
   // GET /managing/discipline-rate/:employeeProfileId
