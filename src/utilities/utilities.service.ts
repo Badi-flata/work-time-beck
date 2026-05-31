@@ -88,18 +88,22 @@ export class UtilitiesService {
   // ─────────────────────────────────────────────────────────────
   // 1. calculateMonthlyBoundedPeriod — حساب الفترات المقيدة بالشهر
   // ─────────────────────────────────────────────────────────────
-  calculateMonthlyBoundedPeriod(mode: 'daily' | 'weekly' | 'monthly', dateAnchor: string) {
+  calculateMonthlyBoundedPeriod(mode: 'all' | 'daily' | 'weekly' | 'monthly', dateAnchor: string) {
     const parsedDate = parseISO(dateAnchor);
     const year = parsedDate.getFullYear();
     const month = parsedDate.getMonth(); // 0-indexed
     const day = parsedDate.getDate();
 
     let startDate: Date;
-    let endDate: Date;
+    let endDate: Date | undefined;
     let periodLabel: string;
 
-    if (mode === 'daily') {
-      startDate = startOfDay(parsedDate);
+  if (mode === 'all'){
+      startDate = startOfDay(parsedDate) || startOfDay(toZonedTime(Date.now(), TZ));
+      periodLabel = format(startDate, 'yyyy-MM-dd');
+      
+  }else if (mode === 'daily') {
+      startDate = startOfDay(parsedDate) || startOfDay(toZonedTime(Date.now(), TZ));
       endDate = addDays(startDate, 1);
       periodLabel = format(startDate, 'yyyy-MM-dd');
     } else if (mode === 'weekly') {
@@ -146,7 +150,7 @@ export class UtilitiesService {
       periodLabel = `شهر ${format(startDate, 'yyyy-MM')}: ${formattedStart} ↔ ${formattedEnd}`;
     }
 
-    return { startDate, endDate, periodLabel };
+    return { ...(mode === 'all' ? { startDate, periodLabel } : { startDate, endDate, periodLabel }) };
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -154,7 +158,8 @@ export class UtilitiesService {
   // ─────────────────────────────────────────────────────────────
   async getDashboardRegistry(
     managerId: string,
-    mode: 'daily' | 'weekly' | 'monthly',
+    mode: 'all' | 'daily' | 'weekly' | 'monthly',
+      statusFilter: string | undefined,
     dateAnchor: string,
   ): Promise<DashboardRegistryResponse> {
     const admin = await this.prisma.adminProfile.findUnique({
@@ -166,7 +171,7 @@ export class UtilitiesService {
     }
 
     // 1. حساب حدود الفترة الزمنية
-    const { startDate, endDate, periodLabel } = this.calculateMonthlyBoundedPeriod(mode, dateAnchor);
+    const result = this.calculateMonthlyBoundedPeriod(mode, dateAnchor);
 
     // 2. استعلام جلب المرؤوسين وسجلات حضورهم ضمن الفترة المحددة
     const subordinates = await this.prisma.employeeProfile.findMany({
@@ -187,8 +192,9 @@ export class UtilitiesService {
         attendances: {
           where: {
             date: {
-              gte: startDate,
-              lt: endDate,
+             ...(mode === 'all' ? { lte: result.startDate } 
+              : { gte: result.startDate, lt: result[0]?.endDate })
+              
             },
           },
           orderBy: { date: 'asc' },
@@ -205,7 +211,7 @@ export class UtilitiesService {
     let deductedCount = 0;
 
     const tableRows: any[] = [];
-
+    
     for (const emp of subordinates) {
       const atts = emp.attendances;
 
@@ -231,41 +237,45 @@ export class UtilitiesService {
       });
 
       // حساب الخصومات للفترة
-      let hasPeriodDeductionOffense = false;
       let periodTotalDeductions = 0;
 
       atts.forEach((a) => {
         const dailyDeduction = this.statsHelper.computeDailyDeduction(a, emp.salary ?? 0);
         if (dailyDeduction > 0) {
           periodTotalDeductions += dailyDeduction;
-          hasPeriodDeductionOffense = true;
+          deductedCount++;
         }
       });
 
-      if (hasPeriodDeductionOffense) {
-        deductedCount++;
-      }
 
       // ب) بناء الصفوف متعددة الأشكال (Polymorphic Table Rows)
       if (mode === 'daily') {
         const att = atts[0] ?? null;
-        const dailyDeduction = att ? this.statsHelper.computeDailyDeduction(att, emp.salary ?? 0) : 0;
+        // let att: any = null;
+        // if (statusFilter && statusFilter !== 'all') {
+        //   att = subordinates.forEach(ele => {
+        //     ele.attendances.find(a => a.status === statusFilter.toUpperCase())})
+        //   }else{
+        //   att = atts[0] ?? null;
+        //   }
 
-        tableRows.push({
-          employeeProfileId: emp.id,
-          fullName: emp.user.fullName,                                      // أولوية 1
-          status: att?.status ?? 'ABSENT',                                  // أولوية 2
-          checkIn: att?.checkIn ?? null,                                    // أولوية 3
-          checkOut: att?.checkOut ?? null,                                  // أولوية 4
-          todayDeduction: dailyDeduction,                                   // أولوية 5
-          jobTitle: emp.user.jobTitle,
-          departmentName: emp.department.name,
-          shiftHours: `${emp.shift.startTime} - ${emp.shift.endTime}`,
-          isExcusedIn: att?.isExcusedIn ?? false,
-          isExcusedOut: att?.isExcusedOut ?? false,
-          excuseReasonIn: att?.excuseReasonIn ?? null,
-          excuseReasonOut: att?.excuseReasonOut ?? null,
-        });
+          const dailyDeduction = att ? this.statsHelper.computeDailyDeduction(att, emp.salary ?? 0) : 0;
+
+            tableRows.push({
+              employeeProfileId: att.id,
+              fullName: emp.user.fullName,                                         // أولوية 1
+              status: att?.status,                                    // أولوية 2
+              checkIn: att?.checkIn ?? null,                                     // أولوية 3
+              checkOut: att?.checkOut ?? null,                                  // أولوية 4
+              isExcusedIn: att?.isExcusedIn ?? false,                          // أولوية 5
+              isExcusedOut: att?.isExcusedOut ?? false,
+              todayDeduction: dailyDeduction,                                  
+              jobTitle: emp.user.jobTitle,
+              departmentName: emp.department.name,
+              shiftHours: `${emp.shift.startTime} - ${emp.shift.endTime}`,
+              excuseReasonIn: att?.excuseReasonIn ?? null,
+              excuseReasonOut: att?.excuseReasonOut ?? null,
+        })
       } else {
         // weekly | monthly mode
         const summary = this.statsHelper.summarizeAttendances(atts);
@@ -273,15 +283,18 @@ export class UtilitiesService {
           summary.totalDays > 0
             ? Math.round((summary.onTimeDays / summary.totalDays) * 100)
             : 100;
-        
+          
         tableRows.push({
           employeeProfileId: emp.id,
+          status:emp?.attendances[0]?.status,
           fullName: emp.user.fullName,                                      // أولوية 1
           disciplineRate,                                                   // أولوية 2
           disciplineLabel: this.statsHelper.computeDisciplineLabel(disciplineRate), // أولوية 3
           periodDeductions: periodTotalDeductions,                          // أولوية 4
           presentDays: summary.presentDays,
-          absentDays: summary.absentDays,
+          absentDays:  summary.absentDays,
+          excusedDays: summary.excusedDays,
+          escapedDays: summary.escapedDays,
           lateDays: summary.lateDays,
           earlyDepartureCount: summary.earlyDepartureCount,
           jobTitle: emp.user.jobTitle,
@@ -292,7 +305,7 @@ export class UtilitiesService {
 
     const metrics: DashboardMetrics = {
       mode,
-      periodLabel,
+      periodLabel: result.periodLabel,
       totalEmployees,
       presentCount,
       lateCount,
@@ -300,6 +313,10 @@ export class UtilitiesService {
       earlyDepartureCount,
       deductedCount,
     };
+
+    if(statusFilter && statusFilter !== 'all'){
+      tableRows.filter(a => a.status === statusFilter.toUpperCase())
+    }
 
     return {
       metrics,

@@ -2,7 +2,7 @@
 
 /** الإحصائيات العلوية — Top Metric Cards */
 export interface DashboardMetrics {
-  mode: 'daily' | 'weekly' | 'monthly';
+  mode: 'all'| 'daily' | 'weekly' | 'monthly';
   periodLabel: string;           // مثل "الأسبوع الثاني: 2026-05-08 ← 2026-05-14" أو "2026-05-30"
   totalEmployees: number;
   presentCount: number;          // عدد الموظفين الحاضرين الفريدين خلال الفترة
