@@ -209,7 +209,9 @@ export class UtilitiesService {
     const totalSubordinates = subordinates.length;
     let presentCount = 0;
     let lateCount = 0;
+    let absentCount = 0;
     let excusedCount = 0;
+    let escapedCount = 0;
     let earlyDepartureCount = 0;
     let deductedCount = 0;
 
@@ -235,8 +237,7 @@ export class UtilitiesService {
           presentDays++;
         } else if (status === AttendanceStatus.LATE) {
           lateDays++;
-          presentDays++;
-          lateCount++;
+          presentDays++; // الموظف المتأخر يعتبر حاضراً مادياً
         } else if (status === AttendanceStatus.ABSENT) {
           absentDays++;
         } else if (status === AttendanceStatus.EXCUSED) {
@@ -246,12 +247,11 @@ export class UtilitiesService {
         }
 
         if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
-          excusedCount++;
+          excusedDays++;
         }
         
         if ((a.earlyLeaveMinutes ?? 0) > 0) {
           earlyDepartureDays++;
-          earlyDepartureCount++;
         }
         
         const dayDeduction = a.salaryDeduction ?? 0;
@@ -270,17 +270,49 @@ export class UtilitiesService {
         });
       }
 
+      // حساب العدادات العلوية الفريدة لكل موظف للفترة
       if (presentDays > 0) {
         presentCount++;
       }
-
-      // إصلاح Bug 2: عد الموظفين المخصوم منهم فعلياً بشكل فريد
+      if (absentDays > 0) {
+        absentCount++;
+      }
+      if (excusedDays > 0) {
+        excusedCount++;
+      }
+      if (lateDays > 0) {
+        lateCount++;
+      }
+      if (escapedDays > 0) {
+        escapedCount++;
+      }
+      if (earlyDepartureDays > 0) {
+        earlyDepartureCount++;
+      }
       if (employeeDeductions > 0) {
         deductedCount++;
       }
 
-      // في الوضع اليومي، إذا لم يتوفر سجل حضور للموظف، نعتبره غائباً لعرضه في الجدول
-      if (mode === 'daily' && dailyBreakdown.length === 0) {
+      // في الوضع اليومي، نعتبر الموظف غائباً فقط إذا لم يكن لديه سجل حضور وقد بدأ وقت ورديته (أو انتهت)
+      const nowZoned = toZonedTime(Date.now(), TZ);
+      const todayStr = format(nowZoned, 'yyyy-MM-dd');
+      const anchorStr = format(result.startDate, 'yyyy-MM-dd');
+      
+      let isShiftActiveOrPast = false;
+      if (anchorStr < todayStr) {
+        // تاريخ سابق: الوردية انتهت بالتأكيد
+        isShiftActiveOrPast = true;
+      } else if (anchorStr === todayStr) {
+        // اليوم: نتحقق إذا بدأ وقت الوردية الحالية
+        const currentMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
+        const [sh, sm] = emp.shift.startTime.split(':').map(Number);
+        const shiftStartMinutes = sh * 60 + sm;
+        if (currentMinutes >= shiftStartMinutes) {
+          isShiftActiveOrPast = true;
+        }
+      }
+
+      if (mode === 'daily' && isShiftActiveOrPast && dailyBreakdown.length === 0) {
         absentDays++;
         dailyBreakdown.push({
           date: format(result.startDate, 'yyyy-MM-dd'),
@@ -342,6 +374,8 @@ export class UtilitiesService {
         totalPresent: presentCount,
         totalLateOccurrences: lateCount,
         totalExcused: excusedCount,
+        totalAbsent: absentCount,
+        totalEscaped: escapedCount,
         totalEarlyLeaves: earlyDepartureCount,
         totalDeductedEmployeesCount: deductedCount,
       },

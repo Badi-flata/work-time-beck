@@ -25,6 +25,8 @@ export interface AggregatedMetrics {
   totalPresent: number;
   totalLateOccurrences: number;
   totalExcused: number;
+  totalAbsent:number;
+  totalEscaped:number;
   totalEarlyLeaves: number;
   totalDeductedEmployeesCount: number;
 }
