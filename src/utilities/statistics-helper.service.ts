@@ -1,8 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // StatisticsHelperService — الطبقة المركزية للحسابات الإحصائية
 // ═══════════════════════════════════════════════════════════════
-// هذا الملف يحتوي على الدوال الجامعة التي تُستدعى من جميع الـ endpoints
-// لتجنب تكرار الكود وضمان اتساق العمليات الحسابية
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -12,11 +10,10 @@ import { toZonedTime } from 'date-fns-tz';
 import {
   AttendanceSummary,
   DisciplineRate,
-  DashboardCounts,
-  DashboardStats,
   PeriodSummary,
   EnrichedEmployee,
 } from './types/statistics.types';
+import { DisciplineRating } from './types/dashboard-registry.types';
 
 const TZ = 'Asia/Riyadh';
 
@@ -28,48 +25,43 @@ export class StatisticsHelperService {
   // 1. summarizeAttendances — الدالة الأساسية لكل الإحصائيات
   // ═══════════════════════════════════════════════════════════════
   // دالة نقية (Pure Function) — لا تستعلم من قاعدة البيانات
-  // تأخذ مصفوفة سجلات حضور خام وتُعيد ملخصاً إحصائياً موحداً
+  // تأخذ مصفوفة سجلات حضور خام وتُعيد ملخصاً إحصائياً موحداً بتمريرة واحدة O(n)
   summarizeAttendances(attendances: any[]): AttendanceSummary {
     const totalDays = attendances.length;
+    let onTimeDays = 0;
+    let lateDays = 0;
+    let absentDays = 0;
+    let excusedDays = 0;
+    let escapedDays = 0;
+    let earlyDepartureCount = 0;
+    let totalWorkedMinutes = 0;
+    let totalDelayMinutes = 0;
+    let totalEarlyLeaveMinutes = 0;
 
-    const onTimeDays = attendances.filter(
-      (a) => a.status === AttendanceStatus.ON_TIME,
-    ).length;
+    for (let i = 0; i < totalDays; i++) {
+      const a = attendances[i];
+      const status = a.status;
 
-    const lateDays = attendances.filter(
-      (a) => a.status === AttendanceStatus.LATE,
-    ).length;
+      if (status === AttendanceStatus.ON_TIME) {
+        onTimeDays++;
+      } else if (status === AttendanceStatus.LATE) {
+        lateDays++;
+      } else if (status === AttendanceStatus.ABSENT) {
+        absentDays++;
+      } else if (status === AttendanceStatus.EXCUSED) {
+        excusedDays++;
+      } else if (status === AttendanceStatus.ESCAPY) {
+        escapedDays++;
+      }
 
-    const absentDays = attendances.filter(
-      (a) => a.status === AttendanceStatus.ABSENT,
-    ).length;
+      if ((a.earlyLeaveMinutes ?? 0) > 0) {
+        earlyDepartureCount++;
+      }
 
-    const excusedDays = attendances.filter(
-      (a) => a.status === AttendanceStatus.EXCUSED,
-    ).length;
-
-    const escapedDays = attendances.filter(
-      (a) => a.status === AttendanceStatus.ESCAPY,
-    ).length;
-
-    const earlyDepartureCount = attendances.filter(
-      (a) => (a.earlyLeaveMinutes ?? 0) > 0,
-    ).length;
-
-    const totalWorkedMinutes = attendances.reduce(
-      (sum, a) => sum + (a.totalWorkedMinutes ?? 0),
-      0,
-    );
-
-    const totalDelayMinutes = attendances.reduce(
-      (sum, a) => sum + (a.delayMinutes ?? 0),
-      0,
-    );
-
-    const totalEarlyLeaveMinutes = attendances.reduce(
-      (sum, a) => sum + (a.earlyLeaveMinutes ?? 0),
-      0,
-    );
+      totalWorkedMinutes += a.totalWorkedMinutes ?? 0;
+      totalDelayMinutes += a.delayMinutes ?? 0;
+      totalEarlyLeaveMinutes += a.earlyLeaveMinutes ?? 0;
+    }
 
     return {
       totalDays,
@@ -112,11 +104,7 @@ export class StatisticsHelperService {
         ? Math.round((summary.onTimeDays / summary.totalDays) * 100)
         : 100; // لا يوجد سجلات = لا مخالفات
 
-    let label: string;
-    if (rate >= 95) label = 'ممتاز';
-    else if (rate >= 85) label = 'جيد جداً';
-    else if (rate >= 70) label = 'جيد';
-    else label = 'يحتاج تحسين';
+    const label = this.computeDisciplineLabel(rate);
 
     return {
       rate,
@@ -129,85 +117,7 @@ export class StatisticsHelperService {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 3. computeDashboardStats — إحصائيات لوحة التحكم
-  // ═══════════════════════════════════════════════════════════════
-  // يُستدعى من: dashboard, daily-report
-  // يأخذ مصفوفة المرؤوسين (كل منهم يحتوي .attendances[] لليوم المطلوب)
-  // يُصنف الموظفين حسب الحالة ويحسب إحصائيات إضافية
-  computeDashboardStats(subordinates: any[]): DashboardStats {
-    const present: any[] = [];
-    const absent: any[] = [];
-    const excused: any[] = [];
-    const escaped: any[] = [];
-    const late: any[] = [];
-    const onTime: any[] = [];
-
-    let earlyDeparture = 0;
-    let deducted = 0;
-    let checkedOut = 0;
-    let notCheckedOut = 0;
-
-    for (const emp of subordinates) {
-      const att = emp.attendances?.[0];
-
-      if (!att || att.status === AttendanceStatus.ABSENT) {
-        absent.push(emp);
-      } else if (att.status === AttendanceStatus.EXCUSED) {
-        excused.push(emp);
-      } else if (att.status === AttendanceStatus.ESCAPY) {
-        escaped.push(emp);
-      } else if (att.checkIn) {
-        // حاضر (ON_TIME أو LATE)
-        present.push(emp);
-        if (att.status === AttendanceStatus.LATE) {
-          late.push(emp);
-        } else {
-          onTime.push(emp);
-        }
-      } else {
-        absent.push(emp);
-      }
-
-      // إحصائيات إضافية
-      if (att && (att.earlyLeaveMinutes ?? 0) > 0) {
-        earlyDeparture++;
-      }
-
-      // إصلاح Bug 2: عدد المخصوم منهم في اليوم الفعلي بدلاً من التراكمي
-      if (att && this.hasDeductibleOffense(att)) {
-        deducted++;
-      }
-
-      // حالة الانصراف
-      if (att?.checkOut) {
-        checkedOut++;
-      } else if (att?.checkIn && !att?.checkOut) {
-        notCheckedOut++;
-      }
-    }
-
-    const counts: DashboardCounts = {
-      total: subordinates.length,
-      present: present.length,
-      absent: absent.length,
-      excused: excused.length,
-      escaped: escaped.length,
-      late: late.length,
-      onTime: onTime.length,
-      earlyDeparture,
-      deducted,
-      checkedOut,
-      notCheckedOut,
-    };
-
-    return {
-      counts,
-      details: { present, absent, excused, escaped, late, onTime },
-    };
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  // 4. enrichEmployeeData — إثراء بيانات الموظف
+  // 3. enrichEmployeeData — إثراء بيانات الموظف
   // ═══════════════════════════════════════════════════════════════
   // يُستدعى من: profile, my-employees, search
   // يُضيف: disciplineRate + attendanceSummary (آخر 30 يوم)
@@ -239,11 +149,7 @@ export class StatisticsHelperService {
             )
           : 100;
 
-      let label: string;
-      if (rate >= 95) label = 'ممتاز';
-      else if (rate >= 85) label = 'جيد جداً';
-      else if (rate >= 70) label = 'جيد';
-      else label = 'يحتاج تحسين';
+      const label = this.computeDisciplineLabel(rate);
 
       disciplineRate = {
         rate,
@@ -263,7 +169,7 @@ export class StatisticsHelperService {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 5. computePeriodSummary — ملخص تقرير أسبوعي/شهري
+  // 4. computePeriodSummary — ملخص تقرير أسبوعي/شهري
   // ═══════════════════════════════════════════════════════════════
   // يُستدعى من: weekly-report, monthly-report (المدير + الموظف)
   // يأخذ سجلات حضور الفترة → يُعيد ملخص + السجلات الخام
@@ -276,7 +182,7 @@ export class StatisticsHelperService {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 6. hasDeductibleOffense — هل السجل يحتوي على مخالفة خصم
+  // 5. hasDeductibleOffense — هل السجل يحتوي على مخالفة خصم
   // ═══════════════════════════════════════════════════════════════
   hasDeductibleOffense(att: any): boolean {
     if (!att) return false;
@@ -295,7 +201,7 @@ export class StatisticsHelperService {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 7. computeDailyDeduction — حساب الخصم اليومي المالي في الذاكرة دون تعديل DB
+  // 6. computeDailyDeduction — حساب الخصم اليومي المالي في الذاكرة دون تعديل DB
   // ═══════════════════════════════════════════════════════════════
   computeDailyDeduction(att: any, baseSalary: number): number {
     if (!att || baseSalary <= 0) return 0;
@@ -329,12 +235,22 @@ export class StatisticsHelperService {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 8. computeDisciplineLabel — إرجاع التقييم العربي بناءً على النسبة
+  // 7. computeDisciplineLabel — إرجاع التقييم العربي بناءً على النسبة
   // ═══════════════════════════════════════════════════════════════
   computeDisciplineLabel(rate: number): string {
     if (rate >= 95) return 'ممتاز';
     if (rate >= 85) return 'جيد جداً';
     if (rate >= 70) return 'جيد';
     return 'يحتاج تحسين';
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 8. computeDisciplineRating — إرجاع التقييم بالإنجليزية للـ DTO الموحد
+  // ═══════════════════════════════════════════════════════════════
+  computeDisciplineRating(rate: number): DisciplineRating {
+    if (rate >= 95) return 'EXCELLENT';
+    if (rate >= 85) return 'VERY_GOOD';
+    if (rate >= 70) return 'GOOD';
+    return 'NEEDS_IMPROVEMENT';
   }
 }

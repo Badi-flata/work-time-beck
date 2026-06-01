@@ -29,16 +29,7 @@ export class ManagingController {
     private readonly statsHelper: StatisticsHelperService,
   ) {}
 
-  // GET /managing/dashboard?date=2026-05-18&status=LATE
-  @Get('dashboard')
-  async getDashboard(
-    @CurrentUser('userId') userId: string,
-    @Query('date') date?: string,
-    @Query('status') status?: string,
-  ) {
-    const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
-    return this.utility.getDashboard(userId, date || defaultDate, status);
-  }
+
 
 
   // إضافة عامل لدى المدير 
@@ -102,15 +93,29 @@ export class ManagingController {
   }
 
   // لوحة التحكم الموحدة وسجلات حضور الموظفين للمدير
-  // GET /managing/dashboard-registry?mode=daily&dateAnchor=2026-05-30
+  // GET /managing/dashboard-registry?mode=ALL&dateAnchor=2026-05-30&page=1&limit=10&startDate=2026-05-01&endDate=2026-05-31
   @Get('dashboard-registry')
   async getDashboardRegistry(
     @CurrentUser('userId') userId: string,
-    @Query('mode') mode: 'daily' | 'weekly' | 'monthly' = 'daily',
+    @Query('mode') mode: 'ALL' | 'daily' | 'weekly' | 'monthly' = 'ALL',
     @Query('dateAnchor') dateAnchor?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
-    return this.utility.getDashboardRegistry(userId, mode, dateAnchor || defaultDate);
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 10;
+    return this.utility.getDashboardRegistry(
+      userId,
+      mode,
+      dateAnchor || defaultDate,
+      pageNumber,
+      limitNumber,
+      startDate,
+      endDate,
+    );
   }
 
   @Get('employee-weekly-report/:id')

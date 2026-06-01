@@ -18,8 +18,9 @@ import { toZonedTime } from 'date-fns-tz';
 import { AttendanceStatus } from '@prisma/client';
 import { StatisticsHelperService } from './statistics-helper.service';
 import {
-  DashboardRegistryResponse,
-  DashboardMetrics,
+  OptimizedDashboardResponse,
+  RegistryEntry,
+  DailyBreakdownEntry,
 } from './types/dashboard-registry.types';
 
 const TZ = 'Asia/Riyadh';
@@ -32,78 +33,25 @@ export class UtilitiesService {
   ) {}
 
   // ─────────────────────────────────────────────────────────────
-  // GET /managing/dashboard?date=2026-05-18&status=LATE
+  // 1. calculateMonthlyBoundedPeriod — حساب الفترات الزمنية بدقة
   // ─────────────────────────────────────────────────────────────
-  async getDashboard(managerId: string, date: string, statusFilter?: string) {
-    const targetDate = startOfDay(parseISO(date));
-
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerId },
-      include: {
-        subordinates: {
-          include: {
-            user: {
-              select: {
-                fullName: true,
-                email: true,
-                phone: true,
-              },
-            },
-            attendances: {
-              where: { date: targetDate },
-            },
-          },
-        },
-      },
-    });
-
-    if (!admin) {
-      throw new NotFoundException('لم يتم العثور على حساب المدير');
-    }
-
-    const stats = this.statsHelper.computeDashboardStats(admin.subordinates);
-
-    let filteredList: any[] | undefined = undefined;
-    if (statusFilter && statusFilter !== 'all') {
-      const key = statusFilter.toLowerCase();
-      const mapping: Record<string, string> = {
-        present: 'present',
-        absent: 'absent',
-        excused: 'excused',
-        escaped: 'escaped',
-        late: 'late',
-        ontime: 'onTime',
-      };
-      const actualKey = mapping[key] || statusFilter;
-      filteredList = stats.details[actualKey] || [];
-    }
-
-    return {
-      counts: stats.counts,
-      details: stats.details,
-      ...(filteredList !== undefined && { filteredList }),
-    };
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // 1. calculateMonthlyBoundedPeriod — حساب الفترات المقيدة بالشهر
-  // ─────────────────────────────────────────────────────────────
-  calculateMonthlyBoundedPeriod(mode: 'all' | 'daily' | 'weekly' | 'monthly', dateAnchor: string) {
-    const parsedDate = parseISO(dateAnchor);
-    const year = parsedDate.getFullYear();
-    const month = parsedDate.getMonth(); // 0-indexed
-    const day = parsedDate.getDate();
+  calculateMonthlyBoundedPeriod(
+    mode: 'ALL' | 'daily' | 'weekly' | 'monthly',
+    dateAnchor: string,
+    customStartDate?: string,
+    customEndDate?: string,
+  ) {
+    const referenceDate = dateAnchor ? parseISO(dateAnchor) : toZonedTime(Date.now(), TZ);
+    const year = referenceDate.getFullYear();
+    const month = referenceDate.getMonth(); // 0-indexed
+    const day = referenceDate.getDate();
 
     let startDate: Date;
-    let endDate: Date | undefined;
+    let endDate: Date;
     let periodLabel: string;
 
-  if (mode === 'all'){
-      startDate = startOfDay(parsedDate) || startOfDay(toZonedTime(Date.now(), TZ));
-      periodLabel = format(startDate, 'yyyy-MM-dd');
-      
-  }else if (mode === 'daily') {
-      startDate = startOfDay(parsedDate) || startOfDay(toZonedTime(Date.now(), TZ));
+    if (mode === 'daily') {
+      startDate = startOfDay(referenceDate);
       endDate = addDays(startDate, 1);
       periodLabel = format(startDate, 'yyyy-MM-dd');
     } else if (mode === 'weekly') {
@@ -140,17 +88,40 @@ export class UtilitiesService {
       const formattedStart = format(startDate, 'yyyy-MM-dd');
       const formattedEnd = format(new Date(year, month, endDay), 'yyyy-MM-dd');
       periodLabel = `${weekLabel}: ${formattedStart} ↔ ${formattedEnd}`;
-    } else {
-      startDate = startOfMonth(parsedDate);
+    } else if (mode === 'monthly') {
+      startDate = startOfMonth(referenceDate);
       endDate = startOfDay(addMonths(startDate, 1));
       
       const formattedStart = format(startDate, 'yyyy-MM-dd');
-      const lastDayOfMonth = endOfMonth(parsedDate);
+      const lastDayOfMonth = endOfMonth(referenceDate);
       const formattedEnd = format(lastDayOfMonth, 'yyyy-MM-dd');
       periodLabel = `شهر ${format(startDate, 'yyyy-MM')}: ${formattedStart} ↔ ${formattedEnd}`;
+    } else {
+      // ALL mode
+      if (customStartDate) {
+        startDate = startOfDay(parseISO(customStartDate));
+      } else {
+        startDate = startOfMonth(referenceDate);
+      }
+
+      if (customEndDate) {
+        endDate = startOfDay(parseISO(customEndDate));
+        // حماية الأداء: تقييد الفترة بـ 5 أشهر كأقصى حد
+        const maxEnd = addMonths(startDate, 5);
+        if (endDate > maxEnd) {
+          endDate = maxEnd;
+        }
+      } else {
+        // افتراضي: شهر واحد
+        endDate = startOfDay(addMonths(startDate, 1));
+      }
+
+      const formattedStart = format(startDate, 'yyyy-MM-dd');
+      const formattedEnd = format(addDays(endDate, -1), 'yyyy-MM-dd');
+      periodLabel = `فترة مخصصة: ${formattedStart} ↔ ${formattedEnd}`;
     }
 
-    return { ...(mode === 'all' ? { startDate, periodLabel } : { startDate, endDate, periodLabel }) };
+    return { startDate, endDate, periodLabel };
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -158,10 +129,13 @@ export class UtilitiesService {
   // ─────────────────────────────────────────────────────────────
   async getDashboardRegistry(
     managerId: string,
-    mode: 'all' | 'daily' | 'weekly' | 'monthly',
-      statusFilter: string | undefined,
+    mode: 'ALL' | 'daily' | 'weekly' | 'monthly',
     dateAnchor: string,
-  ): Promise<DashboardRegistryResponse> {
+    page?: number,
+    limit?: number,
+    customStartDate?: string,
+    customEndDate?: string,
+  ): Promise<OptimizedDashboardResponse> {
     const admin = await this.prisma.adminProfile.findUnique({
       where: { userId: managerId },
     });
@@ -170,8 +144,8 @@ export class UtilitiesService {
       throw new NotFoundException('لم يتم العثور على حساب المدير');
     }
 
-    // 1. حساب حدود الفترة الزمنية
-    const result = this.calculateMonthlyBoundedPeriod(mode, dateAnchor);
+    // 1. حساب حدود الفترة الزمنية بدقة
+    const result = this.calculateMonthlyBoundedPeriod(mode, dateAnchor, customStartDate, customEndDate);
 
     // 2. استعلام جلب المرؤوسين وسجلات حضورهم ضمن الفترة المحددة
     const subordinates = await this.prisma.employeeProfile.findMany({
@@ -181,6 +155,7 @@ export class UtilitiesService {
           select: {
             fullName: true,
             jobTitle: true,
+            imageProfile: true,
           },
         },
         department: {
@@ -192,9 +167,8 @@ export class UtilitiesService {
         attendances: {
           where: {
             date: {
-             ...(mode === 'all' ? { lte: result.startDate } 
-              : { gte: result.startDate, lt: result[0]?.endDate })
-              
+              gte: result.startDate,
+              lt: result.endDate,
             },
           },
           orderBy: { date: 'asc' },
@@ -202,132 +176,180 @@ export class UtilitiesService {
       },
     });
 
-    // 3. حساب الإحصائيات العلوية (metrics)
-    const totalEmployees = subordinates.length;
+    // 3. حساب سياق الوردية النشطة (activeShiftContext) ذو الأولوية
+    let activeShiftContext = '';
+    const contextFreq: Record<string, number> = {};
+    for (const emp of subordinates) {
+      const deptName = emp.department?.name || 'بدون قسم';
+      const shiftName = emp.shift?.name || 'بدون وردية';
+      const key = `${deptName} - ${shiftName}`;
+      contextFreq[key] = (contextFreq[key] || 0) + 1;
+    }
+    let maxCount = 0;
+    for (const [key, count] of Object.entries(contextFreq)) {
+      if (count > maxCount) {
+        maxCount = count;
+        activeShiftContext = key;
+      }
+    }
+    if (!activeShiftContext) {
+      const firstDept = await this.prisma.department.findFirst({
+        where: { managerId: admin.id },
+        include: { shift: { take: 1 } },
+      });
+      if (firstDept) {
+        const shiftName = firstDept.shift[0]?.name || '';
+        activeShiftContext = shiftName ? `${firstDept.name} - ${shiftName}` : firstDept.name;
+      } else {
+        activeShiftContext = 'الإدارة العامة';
+      }
+    }
+
+    // 4. حساب الإحصائيات وبناء جدول الموظفين
+    const totalSubordinates = subordinates.length;
     let presentCount = 0;
     let lateCount = 0;
     let excusedCount = 0;
     let earlyDepartureCount = 0;
     let deductedCount = 0;
 
-    const tableRows: any[] = [];
-    
+    const registry: RegistryEntry[] = [];
+
     for (const emp of subordinates) {
       const atts = emp.attendances;
 
-      // أ) حساب الحاضرين الفريدين
-      const hasPresentRecord = atts.some(
-        (a) => a.checkIn && a.status !== AttendanceStatus.ABSENT,
-      );
-      if (hasPresentRecord) {
+      let presentDays = 0;
+      let absentDays = 0;
+      let lateDays = 0;
+      let excusedDays = 0;
+      let escapedDays = 0;
+      let earlyDepartureDays = 0;
+      let employeeDeductions = 0;
+
+      const dailyBreakdown: DailyBreakdownEntry[] = [];
+
+      for (const a of atts) {
+        const status = a.status;
+        if (status === AttendanceStatus.ON_TIME) {
+          presentDays++;
+        } else if (status === AttendanceStatus.LATE) {
+          lateDays++;
+          presentDays++;
+          lateCount++;
+        } else if (status === AttendanceStatus.ABSENT) {
+          absentDays++;
+        } else if (status === AttendanceStatus.EXCUSED) {
+          excusedDays++;
+        } else if (status === AttendanceStatus.ESCAPY) {
+          escapedDays++;
+        }
+
+        if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
+          excusedCount++;
+        }
+
+        if ((a.earlyLeaveMinutes ?? 0) > 0) {
+          earlyDepartureDays++;
+          earlyDepartureCount++;
+        }
+
+        const dayDeduction = this.statsHelper.computeDailyDeduction(a, emp.salary ?? 0);
+        employeeDeductions += dayDeduction;
+
+        const excuseNotes = [a.excuseReasonIn, a.excuseReasonOut].filter(Boolean).join(' | ') || null;
+
+        dailyBreakdown.push({
+          date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
+          status: a.status,
+          checkIn: a.checkIn ? a.checkIn.toISOString() : null,
+          checkOut: a.checkOut ? a.checkOut.toISOString() : null,
+          earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
+          dayDeduction,
+          excuseNotes,
+        });
+      }
+
+      if (presentDays > 0) {
         presentCount++;
       }
 
-      // حساب عدادات التأخير، الأعذار، الخروج المبكر
-      atts.forEach((a) => {
-        if (a.status === AttendanceStatus.LATE) {
-          lateCount++;
-        }
-        if (a.status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
-          excusedCount++;
-        }
-        if ((a.earlyLeaveMinutes ?? 0) > 0) {
-          earlyDepartureCount++;
-        }
-      });
+      // إصلاح Bug 2: عد الموظفين المخصوم منهم فعلياً بشكل فريد
+      if (employeeDeductions > 0) {
+        deductedCount++;
+      }
 
-      // حساب الخصومات للفترة
-      let periodTotalDeductions = 0;
-
-      atts.forEach((a) => {
-        const dailyDeduction = this.statsHelper.computeDailyDeduction(a, emp.salary ?? 0);
-        if (dailyDeduction > 0) {
-          periodTotalDeductions += dailyDeduction;
-          deductedCount++;
-        }
-      });
-
-
-      // ب) بناء الصفوف متعددة الأشكال (Polymorphic Table Rows)
-      if (mode === 'daily') {
-        const att = atts[0] ?? null;
-        // let att: any = null;
-        // if (statusFilter && statusFilter !== 'all') {
-        //   att = subordinates.forEach(ele => {
-        //     ele.attendances.find(a => a.status === statusFilter.toUpperCase())})
-        //   }else{
-        //   att = atts[0] ?? null;
-        //   }
-
-          const dailyDeduction = att ? this.statsHelper.computeDailyDeduction(att, emp.salary ?? 0) : 0;
-
-            tableRows.push({
-              employeeProfileId: att.id,
-              fullName: emp.user.fullName,                                         // أولوية 1
-              status: att?.status,                                    // أولوية 2
-              checkIn: att?.checkIn ?? null,                                     // أولوية 3
-              checkOut: att?.checkOut ?? null,                                  // أولوية 4
-              isExcusedIn: att?.isExcusedIn ?? false,                          // أولوية 5
-              isExcusedOut: att?.isExcusedOut ?? false,
-              todayDeduction: dailyDeduction,                                  
-              jobTitle: emp.user.jobTitle,
-              departmentName: emp.department.name,
-              shiftHours: `${emp.shift.startTime} - ${emp.shift.endTime}`,
-              excuseReasonIn: att?.excuseReasonIn ?? null,
-              excuseReasonOut: att?.excuseReasonOut ?? null,
-        })
-      } else {
-        // weekly | monthly mode
-        const summary = this.statsHelper.summarizeAttendances(atts);
-        const disciplineRate =
-          summary.totalDays > 0
-            ? Math.round((summary.onTimeDays / summary.totalDays) * 100)
-            : 100;
-          
-        tableRows.push({
-          employeeProfileId: emp.id,
-          status:emp?.attendances[0]?.status,
-          fullName: emp.user.fullName,                                      // أولوية 1
-          disciplineRate,                                                   // أولوية 2
-          disciplineLabel: this.statsHelper.computeDisciplineLabel(disciplineRate), // أولوية 3
-          periodDeductions: periodTotalDeductions,                          // أولوية 4
-          presentDays: summary.presentDays,
-          absentDays:  summary.absentDays,
-          excusedDays: summary.excusedDays,
-          escapedDays: summary.escapedDays,
-          lateDays: summary.lateDays,
-          earlyDepartureCount: summary.earlyDepartureCount,
-          jobTitle: emp.user.jobTitle,
-          departmentName: emp.department.name,
+      // في الوضع اليومي، إذا لم يتوفر سجل حضور للموظف، نعتبره غائباً لعرضه في الجدول
+      if (mode === 'daily' && dailyBreakdown.length === 0) {
+        absentDays++;
+        dailyBreakdown.push({
+          date: format(result.startDate, 'yyyy-MM-dd'),
+          status: AttendanceStatus.ABSENT,
+          checkIn: null,
+          checkOut: null,
+          earlyLeaveMinutes: 0,
+          dayDeduction: 0,
+          excuseNotes: null,
         });
       }
+
+      // حساب التقييم
+      const totalDays = presentDays + absentDays + excusedDays + escapedDays;
+      const onTimeDays = presentDays - lateDays;
+      const rate = totalDays > 0 ? Math.round((onTimeDays / totalDays) * 100) : 100;
+      const disciplineRating = this.statsHelper.computeDisciplineRating(rate);
+
+      registry.push({
+        employeeId: emp.id,
+        name: emp.user.fullName,
+        role: emp.user.jobTitle || 'موظف',
+        avatar: emp.user.imageProfile || '',
+        disciplineRating,
+        summary: {
+          presentDays,
+          absentDays,
+          lateDays,
+          totalDeductionsInPeriod: employeeDeductions,
+        },
+        dailyBreakdown,
+      });
     }
 
-    const metrics: DashboardMetrics = {
-      mode,
-      periodLabel: result.periodLabel,
-      totalEmployees,
-      presentCount,
-      lateCount,
-      excusedCount,
-      earlyDepartureCount,
-      deductedCount,
-    };
+    // 5. تطبيق الـ Pagination في الذاكرة لضمان سرعة الاستجابة ودقة العدادات الكلية
+    const totalItems = registry.length;
+    const currentLimit = limit || 10;
+    const currentPage = page || 1;
+    const totalPages = Math.ceil(totalItems / currentLimit);
 
-    if(statusFilter && statusFilter !== 'all'){
-      tableRows.filter(a => a.status === statusFilter.toUpperCase())
-    }
+    const paginatedRegistry = registry.slice((currentPage - 1) * currentLimit, currentPage * currentLimit);
 
     return {
-      metrics,
-      table: tableRows,
+      meta: {
+        periodScope: {
+          start: format(result.startDate, 'yyyy-MM-dd'),
+          end: format(addDays(result.endDate, -1), 'yyyy-MM-dd'),
+        },
+        totalSubordinates: totalSubordinates,
+        activeShiftContext: activeShiftContext,
+        pagination: {
+          page: currentPage,
+          limit: currentLimit,
+          totalItems: totalItems,
+          totalPages: totalPages,
+        },
+      },
+      aggregatedMetrics: {
+        totalPresent: presentCount,
+        totalLateOccurrences: lateCount,
+        totalExcused: excusedCount,
+        totalEarlyLeaves: earlyDepartureCount,
+        totalDeductedEmployeesCount: deductedCount,
+      },
+      registry: paginatedRegistry,
     };
   }
 
-
-
   // ─────────────────────────────────────────────────────────────
-  // التقارير الأسبوعية والشهرية
+  // التقارير الأسبوعية والشهرية للموظفين
   // ─────────────────────────────────────────────────────────────
 
   async getWeeklyReport(userId: string, startDate: string) {
@@ -358,8 +380,6 @@ export class UtilitiesService {
       records: summaryResult.records,
     };
   }
-
-
 
   async getAEmployeeWeeklyReport(employeeUserId: string, startDate: string) {
     return this.getWeeklyReport(employeeUserId, startDate);
@@ -393,9 +413,6 @@ export class UtilitiesService {
       records: summaryResult.records,
     };
   }
-
-
-
 
   // ─────────────────────────────────────────────────────────────
   // حالة الحضور اليومي للموظف
@@ -492,19 +509,8 @@ export class UtilitiesService {
     }
   }
 
-
   // ─────────────────────────────────────────────────────────────
-  // automaticallyCheckOut - الانصراف التلقائي (Cron Job)
-  //
-  // الخوارزم:
-  //  1. جلب جميع سجلات الحضور المفتوحة (checkOut = null) لليوم الحالي
-  //  2. فلترة من تجاوزت وردياتهم + gracePeriodMinOut الخاصة بكل موظف
-  //  3. لكل موظف مؤهل:
-  //     أ) إن كان لديه عذر (isExcusedOut = true):
-  //        → checkOut = نهاية الوردية، الحفاظ على الحالة السابقة
-  //     ب) إن لم يكن له عذر:
-  //        → checkOut = نهاية الوردية، status = ESCAPY (هرب بدون إذن)
-  //  4. يُعيد قائمة بمعرفات الموظفين المتأثرين ليُشغَّل خصم الراتب عليهم
+  // automaticallyCheckOut - الانصراف التلقائي
   // ─────────────────────────────────────────────────────────────
   async automaticallyCheckOut(): Promise<{
     processed: number;
@@ -515,7 +521,6 @@ export class UtilitiesService {
     const today = startOfDay(nowZoned);
     const nowMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
 
-    // 1. جلب كل سجلات الحضور المفتوحة لليوم مع بيانات الوردية
     const openAttendances: any[] = await this.prisma.attendance.findMany({
       where: {
         date: today,
@@ -539,15 +544,12 @@ export class UtilitiesService {
       const shift = attendance.employeeProfile?.shift;
       if (!shift) continue;
 
-      // 2. تحقق من انتهاء وردية الموظف + gracePeriodMinOut
       const [eh, em] = shift.endTime.split(':').map(Number);
       const shiftEndMinutes = eh * 60 + em;
       const shiftEndWithGrace = shiftEndMinutes + (shift.gracePeriodMinOut ?? 30);
 
-      // تخطي من لم تنته وردياتهم + فترة السماح بعد
       if (nowMinutes < shiftEndWithGrace) continue;
 
-      // 3. وقت نهاية الوردية يُستخدم كوقت الخروج المرجعي (أدق من الوقت الحالي)
       const shiftEnd = setMilliseconds(
         setSeconds(setMinutes(setHours(nowZoned, eh), em), 0),
         0,
@@ -555,7 +557,6 @@ export class UtilitiesService {
       const totalWorked = Math.max(0, differenceInMinutes(shiftEnd, attendance.checkIn!));
 
       if (attendance.isExcusedOut) {
-        // 3أ. معذور للخروج: خروج طبيعي عند نهاية الوردية مع الحفاظ على الحالة الأصلية
         await this.prisma.attendance.update({
           where: { id: attendance.id },
           data: {
@@ -576,13 +577,12 @@ export class UtilitiesService {
           outcome: 'EXCUSED_AUTO_OUT',
         });
       } else {
-        // 3ب. غير معذور: ESCAPY - غادر دون تسجيل الانصراف
         await this.prisma.attendance.update({
           where: { id: attendance.id },
           data: {
             checkOut: shiftEnd,
             totalWorkedMinutes: totalWorked,
-            earlyLeaveMinutes: 0, // لا نعرف متى غادر فعلاً، الحالة ESCAPY تعبّر عن المخالفة
+            earlyLeaveMinutes: 0,
             status: AttendanceStatus.ESCAPY,
             adminNotes: 'خروج تلقائي - الموظف غادر دون تسجيل الانصراف',
           },
@@ -603,19 +603,7 @@ export class UtilitiesService {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // salaryDeductionDaily - خصم الراتب اليومي (Cron Job أو نقطة نهاية للمدير)
-  //
-  // الخوارزم:
-  //  المعدل الساعي = الراتب الشهري ÷ (22 يوم عمل × 8 ساعات) = salary ÷ 176
-  //  المعدل الدقيقي = المعدل الساعي ÷ 60
-  //
-  //  1. التأخر دون عذر   → خصم = delayMinutes × المعدل الدقيقي
-  //  2. المغادرة المبكرة دون عذر → خصم = earlyLeaveMinutes × المعدل الدقيقي
-  //  3. ESCAPY (هرب)     → خصم يوم كامل = salary ÷ 22
-  //     يُطبَّق الأكبر بين حسابَي التأخر/المغادرة وخصم اليوم الكامل
-  //
-  //  الخصم يُجمع على salaryDeduction التراكمية دون المساس بـ salary الأساسي
-  //  (صافي الراتب = salary - salaryDeduction يُحسب عند الصرف)
+  // salaryDeductionDaily - خصم الراتب اليومي
   // ─────────────────────────────────────────────────────────────
   async salaryDeductionDaily(
     employeeId: string,
@@ -633,7 +621,6 @@ export class UtilitiesService {
 
     if (!employee) throw new NotFoundException('لم يتم العثور على ملف الموظف');
 
-    // لا يوجد سجل حضور لليوم → لا خصم (الغياب يُعالَج بشكل مستقل)
     const todayAttendance = employee.attendances?.[0] ?? null;
     if (!todayAttendance) {
       return {
@@ -644,9 +631,7 @@ export class UtilitiesService {
     }
 
     const baseSalary: number = employee.salary ?? 0;
-    // المعدل الدقيقي: الراتب ÷ (22 يوم × 8 ساعات × 60 دقيقة) = salary ÷ 10560
     const minuteRate = baseSalary / (22 * 8 * 60);
-    // معدل اليوم الكامل: الراتب ÷ 22 يوم عمل
     const dailyRate = baseSalary / 22;
 
     const { status, isExcusedIn, isExcusedOut, delayMinutes, earlyLeaveMinutes } =
@@ -655,23 +640,19 @@ export class UtilitiesService {
     const breakdown: Record<string , number> = {};
     let todayDeduction = 0;
 
-    // 1. خصم التأخر في الحضور (بدون عذر)
     if (!isExcusedIn && delayMinutes > 0) {
       breakdown.lateDeduction = Math.ceil(delayMinutes * minuteRate);
       todayDeduction += breakdown.lateDeduction;
     }
 
-    // 2. خصم المغادرة المبكرة (بدون عذر)
     if (!isExcusedOut && earlyLeaveMinutes > 0) {
       breakdown.earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
       todayDeduction += breakdown.earlyLeaveDeduction;
     }
 
-    // 3. ESCAPY: خصم يوم كامل، نأخذ الأعلى بين الخصوم المحسوبة وخصم اليوم
     if (status === AttendanceStatus.ESCAPY) {
       const escapyDeduction = Math.ceil(dailyRate);
       breakdown.escapyDeduction = escapyDeduction;
-      // يُطبَّق الأكبر لضمان عقوبة كاملة دون مضاعفة
       todayDeduction = Math.max(todayDeduction, escapyDeduction);
     }
 
@@ -683,7 +664,6 @@ export class UtilitiesService {
       };
     }
 
-    // تجميع الخصم التراكمي على salaryDeduction (لا يُمسّ salary الأساسي)
     const currentDeduction: number = employee.salaryDeduction ?? 0;
     const newTotalDeduction = currentDeduction + todayDeduction;
 
