@@ -84,11 +84,11 @@ export class UtilitiesService {
 
       startDate = startOfDay(new Date(year, month, startDay));
       endDate = startOfDay(new Date(year, month, endDay + 1));
-      
+
       const formattedStart = format(startDate, 'yyyy-MM-dd');
       const formattedEnd = format(new Date(year, month, endDay), 'yyyy-MM-dd');
       periodLabel = `${weekLabel}: ${formattedStart} ↔ ${formattedEnd}`;
-    } else if (mode === 'monthly') {
+      } else if (mode === 'monthly') {
       startDate = startOfMonth(referenceDate);
       endDate = startOfDay(addMonths(startDate, 1));
       
@@ -112,8 +112,8 @@ export class UtilitiesService {
           endDate = maxEnd;
         }
       } else {
-        // افتراضي: شهر واحد
-        endDate = startOfDay(addMonths(startDate, 1));
+        // افتراضي:ثلاثة شهردأ
+        endDate = startOfDay(addMonths(startDate, 3));
       }
 
       const formattedStart = format(startDate, 'yyyy-MM-dd');
@@ -213,11 +213,12 @@ export class UtilitiesService {
     let earlyDepartureCount = 0;
     let deductedCount = 0;
 
+    
     const registry: RegistryEntry[] = [];
-
+    
     for (const emp of subordinates) {
       const atts = emp.attendances;
-
+      
       let presentDays = 0;
       let absentDays = 0;
       let lateDays = 0;
@@ -227,7 +228,7 @@ export class UtilitiesService {
       let employeeDeductions = 0;
 
       const dailyBreakdown: DailyBreakdownEntry[] = [];
-
+      
       for (const a of atts) {
         const status = a.status;
         if (status === AttendanceStatus.ON_TIME) {
@@ -247,13 +248,13 @@ export class UtilitiesService {
         if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
           excusedCount++;
         }
-
+        
         if ((a.earlyLeaveMinutes ?? 0) > 0) {
           earlyDepartureDays++;
           earlyDepartureCount++;
         }
-
-        const dayDeduction = this.statsHelper.computeDailyDeduction(a, emp.salary ?? 0);
+        
+        const dayDeduction = a.salaryDeduction ?? 0;
         employeeDeductions += dayDeduction;
 
         const excuseNotes = [a.excuseReasonIn, a.excuseReasonOut].filter(Boolean).join(' | ') || null;
@@ -625,7 +626,7 @@ export class UtilitiesService {
     if (!todayAttendance) {
       return {
         deducted: 0,
-        newTotalDeduction: employee.salaryDeduction ?? 0,
+        newTotalDeduction: 0,
         breakdown: { reason: 0 },
       };
     }
@@ -659,22 +660,19 @@ export class UtilitiesService {
     if (todayDeduction === 0) {
       return {
         deducted: 0,
-        newTotalDeduction: employee.salaryDeduction ?? 0,
+        newTotalDeduction: todayAttendance.salaryDeduction ?? 0,
         breakdown: { 'لا يوجد خصم مستحق لهذا اليوم': 0 },
       };
     }
 
-    const currentDeduction: number = employee.salaryDeduction ?? 0;
-    const newTotalDeduction = currentDeduction + todayDeduction;
-
-    await this.prisma.employeeProfile.update({
-      where: { id: employeeId },
-      data: { salaryDeduction: newTotalDeduction },
+    await this.prisma.attendance.update({
+      where: { id: todayAttendance.id },
+      data: { salaryDeduction: todayDeduction },
     });
 
     return {
       deducted: todayDeduction,
-      newTotalDeduction,
+      newTotalDeduction: todayDeduction,
       breakdown,
     };
   }

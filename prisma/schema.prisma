@@ -80,7 +80,7 @@ model EmployeeProfile {
 
   isWorking        Boolean        @default(false)
   salary           Int            @default(500)
-  salaryDeduction  Int            @default(0)
+
 
   // علاقات العمل الأساسية
   departmentId String
@@ -140,6 +140,7 @@ model Attendance {
   isExcusedOut          Boolean          @default(false)       
   status              AttendanceStatus   @default(ON_TIME)
   
+  salaryDeduction     Int            @default(0)
   delayMinutes        Int                @default(0)
   earlyLeaveMinutes   Int                @default(0)
   totalWorkedMinutes  Int                @default(0)
