@@ -240,13 +240,10 @@ export class UtilitiesService {
           presentDays++; // الموظف المتأخر يعتبر حاضراً مادياً
         } else if (status === AttendanceStatus.ABSENT) {
           absentDays++;
-        } else if (status === AttendanceStatus.EXCUSED) {
-          excusedDays++;
-        } else if (status === AttendanceStatus.ESCAPY) {
+        }  else if (status === AttendanceStatus.ESCAPY) {
           escapedDays++;
         }
-
-        if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
+else if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
           excusedDays++;
         }
         
@@ -258,12 +255,14 @@ export class UtilitiesService {
         employeeDeductions += dayDeduction;
 
         const excuseNotes = [a.excuseReasonIn, a.excuseReasonOut].filter(Boolean).join(' | ') || null;
-
+        const checkIn = format(a.checkIn||0, "HH:mm");
+        const checkOut = format(a.checkOut||0, "HH:mm");
         dailyBreakdown.push({
           date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
-          status: a.status,
-          checkIn: a.checkIn ? a.checkIn.toISOString() : null,
-          checkOut: a.checkOut ? a.checkOut.toISOString() : null,
+          shift:emp.shift.name,
+          status: a.status, 
+          checkIn: checkIn || null,
+          checkOut: checkOut || null,
           earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
           dayDeduction,
           excuseNotes,
@@ -316,6 +315,7 @@ export class UtilitiesService {
         absentDays++;
         dailyBreakdown.push({
           date: format(result.startDate, 'yyyy-MM-dd'),
+          shift:emp.shift.name,
           status: AttendanceStatus.ABSENT,
           checkIn: null,
           checkOut: null,
@@ -334,13 +334,16 @@ export class UtilitiesService {
       registry.push({
         employeeId: emp.id,
         name: emp.user.fullName,
-        role: emp.user.jobTitle || 'موظف',
         avatar: emp.user.imageProfile || '',
+        role: emp.user.jobTitle || 'موظف',
         disciplineRating,
         summary: {
           presentDays,
           absentDays,
+          excusedDays,
+          escapedDays,
           lateDays,
+          earlyDepartureDays,
           totalDeductionsInPeriod: employeeDeductions,
         },
         dailyBreakdown,
@@ -349,7 +352,7 @@ export class UtilitiesService {
 
     // 5. تطبيق الـ Pagination في الذاكرة لضمان سرعة الاستجابة ودقة العدادات الكلية
     const totalItems = registry.length;
-    const currentLimit = limit || 10;
+    const currentLimit = limit || 5;
     const currentPage = page || 1;
     const totalPages = Math.ceil(totalItems / currentLimit);
 
