@@ -17,10 +17,12 @@ import {
 import { toZonedTime } from 'date-fns-tz';
 import { AttendanceStatus } from '@prisma/client';
 import { StatisticsHelperService } from './statistics-helper.service';
+import { CalculatePeriodService } from './caculaePeriod.service';
 import {
   OptimizedDashboardResponse,
   RegistryEntry,
   DailyBreakdownEntry,
+  Modes,
 } from './types/dashboard-registry.types';
 
 const TZ = 'Asia/Riyadh';
@@ -30,107 +32,18 @@ export class UtilitiesService {
   constructor(
     private prisma: PrismaService,
     private statsHelper: StatisticsHelperService,
+    private calculatePeriod: CalculatePeriodService,
   ) {}
 
-  // ─────────────────────────────────────────────────────────────
-  // 1. calculateMonthlyBoundedPeriod — حساب الفترات الزمنية بدقة
-  // ─────────────────────────────────────────────────────────────
-  calculateMonthlyBoundedPeriod(
-    mode: 'ALL' | 'daily' | 'weekly' | 'monthly',
-    dateAnchor: string,
-    customStartDate?: string,
-    customEndDate?: string,
-  ) {
-    const referenceDate = dateAnchor ? parseISO(dateAnchor) : toZonedTime(Date.now(), TZ);
-    const year = referenceDate.getFullYear();
-    const month = referenceDate.getMonth(); // 0-indexed
-    const day = referenceDate.getDate();
-
-    let startDate: Date;
-    let endDate: Date;
-    let periodLabel: string;
-
-    if (mode === 'daily') {
-      startDate = startOfDay(referenceDate);
-      endDate = addDays(startDate, 1);
-      periodLabel = format(startDate, 'yyyy-MM-dd');
-    } else if (mode === 'weekly') {
-      let startDay: number;
-      let endDay: number;
-      let weekLabel: string;
-
-      if (day <= 7) {
-        startDay = 1;
-        endDay = 7;
-        weekLabel = 'الأسبوع الأول';
-      } else if (day <= 14) {
-        startDay = 8;
-        endDay = 14;
-        weekLabel = 'الأسبوع الثاني';
-      } else if (day <= 21) {
-        startDay = 15;
-        endDay = 21;
-        weekLabel = 'الأسبوع الثالث';
-      } else if (day <= 28) {
-        startDay = 22;
-        endDay = 28;
-        weekLabel = 'الأسبوع الرابع';
-      } else {
-        startDay = 29;
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        endDay = lastDay;
-        weekLabel = 'الأسبوع الخامس';
-      }
-
-      startDate = startOfDay(new Date(year, month, startDay));
-      endDate = startOfDay(new Date(year, month, endDay + 1));
-
-      const formattedStart = format(startDate, 'yyyy-MM-dd');
-      const formattedEnd = format(new Date(year, month, endDay), 'yyyy-MM-dd');
-      periodLabel = `${weekLabel}: ${formattedStart} ↔ ${formattedEnd}`;
-      } else if (mode === 'monthly') {
-      startDate = startOfMonth(referenceDate);
-      endDate = startOfDay(addMonths(startDate, 1));
-      
-      const formattedStart = format(startDate, 'yyyy-MM-dd');
-      const lastDayOfMonth = endOfMonth(referenceDate);
-      const formattedEnd = format(lastDayOfMonth, 'yyyy-MM-dd');
-      periodLabel = `شهر ${format(startDate, 'yyyy-MM')}: ${formattedStart} ↔ ${formattedEnd}`;
-    } else {
-      // ALL mode
-      if (customStartDate) {
-        startDate = startOfDay(parseISO(customStartDate));
-      } else {
-        startDate = startOfMonth(referenceDate);
-      }
-
-      if (customEndDate) {
-        endDate = startOfDay(parseISO(customEndDate));
-        // حماية الأداء: تقييد الفترة بـ 5 أشهر كأقصى حد
-        const maxEnd = addMonths(startDate, 5);
-        if (endDate > maxEnd) {
-          endDate = maxEnd;
-        }
-      } else {
-        // افتراضي:ثلاثة شهردأ
-        endDate = startOfDay(addMonths(startDate, 3));
-      }
-
-      const formattedStart = format(startDate, 'yyyy-MM-dd');
-      const formattedEnd = format(addDays(endDate, -1), 'yyyy-MM-dd');
-      periodLabel = `فترة مخصصة: ${formattedStart} ↔ ${formattedEnd}`;
-    }
-
-    return { startDate, endDate, periodLabel };
-  }
-
+  
+  
   // ─────────────────────────────────────────────────────────────
   // 2. getDashboardRegistry — الدالة الرئيسية الموحدة للوحة التحكم
   // ─────────────────────────────────────────────────────────────
   async getDashboardRegistry(
     managerId: string,
-    mode: 'ALL' | 'daily' | 'weekly' | 'monthly',
-    dateAnchor: string,
+    mode: Modes,
+    dateAnchor:string,
     page?: number,
     limit?: number,
     customStartDate?: string,
@@ -139,16 +52,42 @@ export class UtilitiesService {
     const admin = await this.prisma.adminProfile.findUnique({
       where: { userId: managerId },
     });
-
+    
     if (!admin) {
       throw new NotFoundException('لم يتم العثور على حساب المدير');
     }
-
-    // 1. حساب حدود الفترة الزمنية بدقة
-    const result = this.calculateMonthlyBoundedPeriod(mode, dateAnchor, customStartDate, customEndDate);
+    
+    // ─────────────────────────────────────────────────────────────
+    // 1. calculateMonthlyBoundedPeriod — حساب الفترات الزمنية بدقة
+    // ─────────────────────────────────────────────────────────────
+    const result = this.calculatePeriod.calculateMonthlyBoundedPeriod(mode, dateAnchor, customStartDate, customEndDate);
 
     // 2. استعلام جلب المرؤوسين وسجلات حضورهم ضمن الفترة المحددة
-    const subordinates = await this.prisma.employeeProfile.findMany({
+    const subordinates = mode === Modes.DAILY ? await this.prisma.employeeProfile.findMany({
+      where: { managerId: admin.id },
+      include: {
+        user: {
+          select: {
+            fullName: true,
+            jobTitle: true,
+            imageProfile: true,
+          },
+        },
+        department: {
+          select: {
+            name: true,
+          },
+        },
+        shift: true,
+        attendances: {
+          where: {
+            date: result.startDate,
+          },
+          orderBy: { date: 'asc' },
+        },
+      },
+    })
+    : await this.prisma.employeeProfile.findMany({
       where: { managerId: admin.id },
       include: {
         user: {
@@ -243,7 +182,7 @@ export class UtilitiesService {
         }  else if (status === AttendanceStatus.ESCAPY) {
           escapedDays++;
         }
-else if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
+       else if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
           excusedDays++;
         }
         
@@ -255,17 +194,47 @@ else if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut)
         employeeDeductions += dayDeduction;
 
         const excuseNotes = [a.excuseReasonIn, a.excuseReasonOut].filter(Boolean).join(' | ') || null;
-        const checkIn = format(a.checkIn||0, "HH:mm");
-        const checkOut = format(a.checkOut||0, "HH:mm");
+        const checkIn = a.checkIn ? format(a.checkIn, "HH:mm") : null;
+        const checkOut = a.checkOut ? format(a.checkOut, "HH:mm") : null;
         dailyBreakdown.push({
           date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
-          shift:emp.shift.name,
+          shift: emp.shift?.name || 'بدون وردية',
           status: a.status, 
-          checkIn: checkIn || null,
-          checkOut: checkOut || null,
+          checkIn,
+          checkOut,
           earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
           dayDeduction,
           excuseNotes,
+        });
+      }
+
+      // في الوضع اليومي، نعتبر الموظف غائباً فقط إذا لم يكن لديه سجل حضور وقد بدأ وقت ورديته (أو انتهت)
+      const nowZoned = toZonedTime(Date.now(), TZ);
+      const todayStr = format(nowZoned, 'yyyy-MM-dd');
+      const anchorStr = format(result.startDate, 'yyyy-MM-dd');
+      let isShiftActiveOrPast = false;
+      if (anchorStr < todayStr) {
+        isShiftActiveOrPast = true;
+      } else if (anchorStr === todayStr) {
+        const currentMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
+        const [sh, sm] = emp.shift?.startTime.split(':').map(Number) || [0, 0];
+        const shiftStartMinutes = sh * 60 + sm;
+        if (currentMinutes >= shiftStartMinutes) {
+          isShiftActiveOrPast = true;
+        }
+      }
+      
+      if (mode === Modes.DAILY && isShiftActiveOrPast && dailyBreakdown.length === 0) {
+        absentDays++;
+        dailyBreakdown.push({
+          date: anchorStr,
+          shift: emp.shift?.name || 'بدون وردية',
+          status: AttendanceStatus.ABSENT,
+          checkIn: null,
+          checkOut: null,
+          earlyLeaveMinutes: 0,
+          dayDeduction: 0,
+          excuseNotes: null,
         });
       }
 
@@ -290,39 +259,6 @@ else if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut)
       }
       if (employeeDeductions > 0) {
         deductedCount++;
-      }
-
-      // في الوضع اليومي، نعتبر الموظف غائباً فقط إذا لم يكن لديه سجل حضور وقد بدأ وقت ورديته (أو انتهت)
-      const nowZoned = toZonedTime(Date.now(), TZ);
-      const todayStr = format(nowZoned, 'yyyy-MM-dd');
-      const anchorStr = format(result.startDate, 'yyyy-MM-dd');
-      
-      let isShiftActiveOrPast = false;
-      if (anchorStr < todayStr) {
-        // تاريخ سابق: الوردية انتهت بالتأكيد
-        isShiftActiveOrPast = true;
-      } else if (anchorStr === todayStr) {
-        // اليوم: نتحقق إذا بدأ وقت الوردية الحالية
-        const currentMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
-        const [sh, sm] = emp.shift.startTime.split(':').map(Number);
-        const shiftStartMinutes = sh * 60 + sm;
-        if (currentMinutes >= shiftStartMinutes) {
-          isShiftActiveOrPast = true;
-        }
-      }
-
-      if (mode === 'daily' && isShiftActiveOrPast && dailyBreakdown.length === 0) {
-        absentDays++;
-        dailyBreakdown.push({
-          date: format(result.startDate, 'yyyy-MM-dd'),
-          shift:emp.shift.name,
-          status: AttendanceStatus.ABSENT,
-          checkIn: null,
-          checkOut: null,
-          earlyLeaveMinutes: 0,
-          dayDeduction: 0,
-          excuseNotes: null,
-        });
       }
 
       // حساب التقييم
@@ -360,10 +296,7 @@ else if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut)
 
     return {
       meta: {
-        periodScope: {
-          start: format(result.startDate, 'yyyy-MM-dd'),
-          end: format(addDays(result.endDate, -1), 'yyyy-MM-dd'),
-        },
+        periodScope: result.periodLabel,
         totalSubordinates: totalSubordinates,
         activeShiftContext: activeShiftContext,
         pagination: {

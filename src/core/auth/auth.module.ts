@@ -18,7 +18,7 @@ import { AuthService } from './auth.service';
       signOptions: {
         // مدة صلاحية الـ token — بعدها ينتهي ويحتاج تجديد
         // Token expiration — after this, it expires and needs refresh
-        expiresIn: '24h',
+        expiresIn: '30d',
       },
     }),
   ],

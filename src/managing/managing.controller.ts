@@ -10,6 +10,7 @@ import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
 import { format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { StatisticsHelperService } from '../utilities/statistics-helper.service';
+import { Modes } from 'src/utilities/types/dashboard-registry.types';
 
 
 
@@ -97,7 +98,7 @@ export class ManagingController {
   @Get('dashboard-registry')
   async getDashboardRegistry(
     @CurrentUser('userId') userId: string,
-    @Query('mode') mode: 'ALL' | 'daily' | 'weekly' | 'monthly' = 'ALL',
+    @Query('mode') mode:Modes,
     @Query('dateAnchor') dateAnchor?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
