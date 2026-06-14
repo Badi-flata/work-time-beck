@@ -7,6 +7,7 @@ WORKDIR /app
 
 # نسخ ملفات التبعيات أولاً (لاستفادة من Docker cache)
 COPY package*.json ./
+COPY .npmrc ./
 COPY prisma ./prisma/
 
 # تثبيت جميع التبعيات (بما فيها devDependencies) لإتمام البناء
@@ -28,6 +29,7 @@ WORKDIR /app
 
 # نسخ ملفات التبعيات
 COPY package*.json ./
+COPY .npmrc ./
 COPY prisma ./prisma/
 
 # تثبيت تبعيات الإنتاج فقط
