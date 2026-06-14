@@ -7,9 +7,23 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // تفعيل CORS للسماح للواجهة الأمامية بالاتصال
+  // CORS_ORIGIN يمكن أن يكون قائمة مفصولة بفاصلة لدعم بيئات متعددة
+  // مثال: CORS_ORIGIN="https://badi-flata.github.io,http://localhost:3000"
+  const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:3000';
+  const allowedOrigins = rawOrigins.split(',').map((o) => o.trim());
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // السماح بالطلبات بدون origin (مثل Postman أو curl)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS: origin "${origin}" is not allowed`));
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   // تفعيل التحقق التلقائي من البيانات المدخلة عبر DTOs
