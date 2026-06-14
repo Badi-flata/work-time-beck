@@ -104,10 +104,13 @@ export class ManagingController {
     @Query('limit') limit?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('status') status?: string,
+    @Query('excludeBreakdown') excludeBreakdown?: string,
   ) {
     const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
     const pageNumber = page ? parseInt(page, 10) : 1;
     const limitNumber = limit ? parseInt(limit, 10) : 10;
+    const exclude = excludeBreakdown === 'true';
     return this.utility.getDashboardRegistry(
       userId,
       mode,
@@ -116,6 +119,8 @@ export class ManagingController {
       limitNumber,
       startDate,
       endDate,
+      status,
+      exclude,
     );
   }
 

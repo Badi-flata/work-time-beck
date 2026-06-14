@@ -48,6 +48,8 @@ export class UtilitiesService {
     limit?: number,
     customStartDate?: string,
     customEndDate?: string,
+    status?: string,
+    excludeBreakdown?: boolean,
   ): Promise<OptimizedDashboardResponse> {
     const admin = await this.prisma.adminProfile.findUnique({
       where: { userId: managerId },
@@ -153,6 +155,7 @@ export class UtilitiesService {
     let escapedCount = 0;
     let earlyDepartureCount = 0;
     let deductedCount = 0;
+    let globlaRating = 0
 
     
     const registry: RegistryEntry[] = [];
@@ -264,8 +267,9 @@ export class UtilitiesService {
       // حساب التقييم
       const totalDays = presentDays + absentDays + excusedDays + escapedDays;
       const onTimeDays = presentDays - lateDays;
-      const rate = totalDays > 0 ? Math.round((onTimeDays / totalDays) * 100) : 100;
+      const rate = totalDays > 0 ? Math.round((onTimeDays / totalDays) * 100) : 0;
       const disciplineRating = this.statsHelper.computeDisciplineRating(rate);
+      globlaRating += rate;
 
       registry.push({
         employeeId: emp.id,
@@ -286,16 +290,50 @@ export class UtilitiesService {
       });
     }
 
+    // conut Globla Rating
+    const RatingOrginzation = totalSubordinates > 0 ? Math.round(globlaRating / totalSubordinates) : 0;
+    const OrginzationLabel = this.statsHelper.computeDisciplineRating(RatingOrginzation);
+
+    // Apply filtering by status if requested
+    let filteredRegistry = registry;
+    if (status) {
+      const s = status.toUpperCase();
+      if (s === 'ON_TIME') {
+        filteredRegistry = registry.filter(e => e.summary.presentDays > 0);
+      } else if (s === 'LATE') {
+        filteredRegistry = registry.filter(e => e.summary.lateDays > 0);
+      } else if (s === 'ABSENT') {
+        filteredRegistry = registry.filter(e => e.summary.absentDays > 0);
+      } else if (s === 'EXCUSED') {
+        filteredRegistry = registry.filter(e => e.summary.excusedDays > 0);
+      } else if (s === 'DEDUCTED') {
+        filteredRegistry = registry.filter(e => e.summary.totalDeductionsInPeriod > 0);
+      } else if (s === 'ESCAPY') {
+        filteredRegistry = registry.filter(e => e.summary.escapedDays > 0);
+      } else if (s === 'EARLY_LEAVE') {
+        filteredRegistry = registry.filter(e => e.summary.earlyDepartureDays > 0);
+      }
+    }
+
+    if (excludeBreakdown) {
+      filteredRegistry = filteredRegistry.map(e => ({
+        ...e,
+        dailyBreakdown: [],
+      }));
+    }
+
     // 5. تطبيق الـ Pagination في الذاكرة لضمان سرعة الاستجابة ودقة العدادات الكلية
-    const totalItems = registry.length;
+    const totalItems = filteredRegistry.length;
     const currentLimit = limit || 5;
     const currentPage = page || 1;
     const totalPages = Math.ceil(totalItems / currentLimit);
 
-    const paginatedRegistry = registry.slice((currentPage - 1) * currentLimit, currentPage * currentLimit);
+    const paginatedRegistry = filteredRegistry.slice((currentPage - 1) * currentLimit, currentPage * currentLimit);
 
     return {
       meta: {
+         RatingOrginzation,
+        OrginzationLabel,
         periodScope: result.periodLabel,
         totalSubordinates: totalSubordinates,
         activeShiftContext: activeShiftContext,

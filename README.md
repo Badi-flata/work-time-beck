@@ -1,190 +1,407 @@
-# نظام إدارة الحضور والانصراف (NestJS + Prisma + PostgreSQL)
-## Attendance & Departure Management Server
+<p align="center">
+  <img src="https://nestjs.com/img/logo-small.svg" width="80" alt="NestJS Logo" />
+</p>
 
-مرحباً بك في التوثيق الشامل لنظام إدارة الحضور والانصراف الخلفي (**WorkTime Backend**). هذا الخادم مبني باستخدام إطار العمل **NestJS** ومحرك الاتصال **Prisma ORM** وقاعدة بيانات **PostgreSQL**، ويتبع أفضل معايير هندسة البرمجيات النظيفة (Clean Code) والبنية الطبقية المتينة.
+<h1 align="center">WorkTime — Backend API</h1>
 
-يحقق هذا المشروع تكاملاً مطلقاً مع واجهات الجوال والويب لإدارة الموارد البشرية وتتبع إنتاجية الموظفين وساعات عملهم الفعلية بكل موثوقية وسرعة.
+<p align="center">
+  A robust, production-ready <strong>Attendance & Workforce Management</strong> REST API built with <strong>NestJS</strong>, <strong>Prisma ORM</strong>, and <strong>PostgreSQL</strong>.
+</p>
 
----
-
-## 🔒 1. نظام الأمان وحماية الممرات (Security & Authentication)
-
-تم تصميم الجانب الأمني في النظام بشكل صارم لحماية بيانات المنشأة الحساسة ومنع الوصول غير المصرح به:
-
-*   **تشفير كلمات المرور (Password Hashing)**:
-    يتم استخدام مكتبة `bcrypt` لتشفير كلمات المرور بشكل غير قابل للفك بمستوى Salt قوي (10 جولات) عند تسجيل الحساب، ويتم استخدام مقارنة التشفير الآمنة عند تسجيل الدخول لحماية الحسابات من هجمات الاختراق.
-*   **حماية الممرات (JWT Authentication)**:
-    عند تسجيل الدخول بنجاح، يُصدر الخادم رمز وصول (Bearer Access Token) موقعاً رقمياً يحتوي على معرف المستخدم الفريد (`userId`) ودوره الإداري (`role`) وله تاريخ صلاحية محدد، ويُستخدم لتأمين كافة الطلبات المستقبلية.
-*   **الحراس وصلاحيات الأدوار (Role-Based Guards & Custom Decorators)**:
-    *   `@Auth(Role.SUPER_ADMIN)`: يقصر مسارات لوحة التحكم والتقارير التنفيذية وإدارة الأقسام والورديات على مديري النظام فقط.
-    *   `@Auth(Role.EMPLOYEE)`: يقصر مسارات تسجيل الحضور وتقديم الأعذار على الموظفين فقط.
-    *   `@CurrentUser('userId')`: مستخلص مخصص ومحمي لاستخراج معرف المستخدم المسجل من الـ Token مباشرة بأمان تام من الـ Request دون تمرير المعرف بشكل مكشوف في الـ URL.
-    *   `@Public()`: لتخطي الحماية في مسارات المصادقة العامة (مثل تسجيل الدخول والتسجيل الجديد).
-*   **التحقق الصارم من المدخلات (Data Validation & Sanitize)**:
-    تفعيل الـ `ValidationPipe` العالمي مع خيارات `whitelist` و `transform` يضمن رفض أي طلب يحتوي على حقول مشبوهة أو غير معرفة في الـ DTOs تلقائياً، مع تنظيف وتدقيق البيانات المدخلة قبل وصولها للمتحكم.
-*   **سلامة وتكامل البيانات (Database Constraints)**:
-    تطبيق قيود المفاتيح الأجنبية وقبلها فحوصات برمجية تمنع بشكل قاطع حذف الأقسام أو الورديات التي تحتوي على موظفين نشطين لحماية تكامل قاعدة البيانات.
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#api-reference">API Reference</a> •
+  <a href="#database-schema">Database Schema</a> •
+  <a href="#license">License</a>
+</p>
 
 ---
 
-## 📊 2. الطبقة المركزية للحسابات الإحصائية (StatisticsHelper Service)
+## Overview
 
-تمثل خدمة **`StatisticsHelperService`** العقل الإحصائي المركزي للنظام. حيث تقوم بعزل جميع المعادلات الرياضية والإحصائية لبيانات الحضور لضمان اتساق تام للبيانات في الواجهات دون تكرار الكود:
-
-*   **حساب إحصائيات لوحة التحكم الموحدة (`computeDashboardStats`)**:
-    تأخذ مصفوفة الموظفين وتوزعهم تلقائياً إلى قوائم تفصيلية حسب حالتهم الفعلية (حاضر، غائب، متأخر، معذور، هرب) مع معالجة وحساب عدادات الخروج المبكر والخصومات.
-*   **حساب نسبة الانضباط التراكمي (`computeDisciplineRate`)**:
-    تحسب نسبة التزام الموظف بدقة بناءً على المعادلة: `(أيام الحضور في الوقت المناسب ÷ إجمالي الأيام المسجلة) × 100` وتصنف التزامه برمز عربي واضح (ممتاز >= 95% | جيد جداً >= 85% | جيد >= 70% | يحتاج تحسين < 70%).
-*   **تجميع وتلخيص الحضور (`summarizeAttendances`)**:
-    دالة نقية وسريعة للغاية تأخذ أي سجلات حضور لفترة زمنية محددة وتستخلص منها تلقائياً إجمالي الأيام، الغيابات، التأخيرات، دقائق الحضور والتأخر والخروج المبكر، وتعديل إجمالي الساعات الفعلية للعمل مقرباً لمنزلة عشرية واحدة.
-*   **حساب المخالفات والخصومات التقديرية بالذاكرة (`hasDeductibleOffense` & `computeDailyDeduction`)**:
-    تسمح للمدير بحساب الخصومات المالية التقديرية لأي فترة زمنية في الذاكرة دون المساس ببيانات الموظف التراكمية التاريخية، مما يعطي مرونة ودقة عالية في تتبع الأثر المالي ضمن فترات محددة.
-*   **إثراء بيانات الموظفين (`enrichEmployeeData`)**:
-    دمج ذكي للإحصائيات التراكمية ومعدل الانضباط مباشرة في كائن ملف الموظف لتقليل الاستعلامات المتكررة وتسهيل عرض بطاقة الموظف في دليل الموظفين.
-*   **ملخص التقارير الدورية (`computePeriodSummary`)**:
-    حساب الإحصائيات وساعات العمل الفعلية للتقارير الأسبوعية والشهرية وإرجاعها مدمجة بالكامل مع السجلات الخام الجاهزة للرسومات البيانية.
+**WorkTime Backend** is the server-side engine for a comprehensive employee attendance and departure tracking system. It provides a clean, well-structured API that powers both web and mobile frontends, enabling HR managers to monitor workforce productivity, manage shifts and departments, process excuses, and generate detailed attendance reports — all in real-time.
 
 ---
 
-## ⚙️ 3. الدوال الرئيسية والأساسية في النظام (Core Functions)
+## Features
 
-*   **السجل الموحد للوحة التحكم (`getDashboardRegistry`)**:
-    النواة الأساسية لعرض لوحة تحكم تفاعلية للمدير بثلاثة أوضاع (`daily` | `weekly` | `monthly`). تقوم بالتقسيم الذكي للأسابيع بشكل مقيد ومغلق داخل حدود الشهر لمنع التداخل بين الشهور، مع ترتيب حقول الاستجابة تنازلياً حسب أولوية اهتمام المدير (الاسم، الحالة/نسبة الانضباط، والخصومات أولاً).
-*   **تسجيل الحضور الفوري (`checkIn`)**:
-    تقوم بجلب وردية الموظف ومقارنة وقت الحضور الحالي مع وقت بدء الوردية المعتمد، وحساب دقائق التأخر تلقائياً بعد تجاوز فترة السماح بالدقائق (`gracePeriodMinIn`) وتحديد الحالة (LATE أو ON_TIME).
-*   **تسجيل الانصراف الفوري (`checkOut`)**:
-    تقوم بحساب دقائق العمل الفعلية بناءً على وقت الحضور الفعلي، وحساب دقائق المغادرة المبكرة (`earlyLeaveMinutes`) تلقائياً في حال انصراف العامل قبل موعد نهاية ورديته.
-*   **إدارة الأعذار ومراجعتها (`submitExcuse` & `approveExcuse`)**:
-    يستطيع الموظف تقديم عذر كتابي مبرر مع تحديد نوعه (تأخر في الحضور IN أو انصراف مبكر OUT). ويستطيع المدير مراجعة الأعذار المعلقة والموافقة عليها بضغطة زر، مما يؤدي لتحديث سجل الحضور تلقائياً ووضع علامة "معذور" لتسقط عنه الغرامات والخصومات المالية التراكمية.
-*   **الانصراف التلقائي للورديات المفتوحة (`automaticallyCheckOut`)**:
-    خوارزمية ذكية (Cron Job) تبحث عن الموظفين الذين انتهت وردياتهم وتجاوزوا فترة السماح للانصراف دون تسجيل خروج، وتقوم بإخراجهم تلقائياً مع تسجيل حالتهم كـ `ESCAPY` (هروب دون إذن) لضمان انضباط العمل.
-*   **حساب الخصم المالي اليومي والتراكمي (`salaryDeductionDaily`)**:
-    خوارزمية مالية تحسب الخصومات بدقة: دقائق التأخر دون عذر، ودقائق المغادرة دون عذر (مضروبة في سعر الدقيقة من الراتب الأساسي)، أو خصم يوم عمل كامل للمتهربين كعقوبة رادعة.
+### 🔐 Authentication & Authorization
+- **JWT-based authentication** with role-based access control (`SUPER_ADMIN` / `EMPLOYEE`)
+- **bcrypt password hashing** (10 salt rounds) for secure credential storage
+- Custom decorators: `@Auth()`, `@CurrentUser()`, `@Public()` for clean route protection
+- Global `ValidationPipe` with `whitelist` + `forbidNonWhitelisted` to reject unknown fields
 
----
+### 📊 Real-Time Dashboard
+- **Unified Dashboard Registry** with three modes: `daily`, `weekly`, and `monthly`
+- Smart week-boundary splitting within month limits to prevent cross-month overlap
+- Live attendance pulse showing present, absent, late, excused, and escaped employees
 
-## 🖥️ 4. ربط مسارات الـ API مع شاشات النظام (API Endpoints & Screen Mapping)
+### ⏱ Attendance Management
+- **Check-in**: Automatic lateness detection by comparing arrival time against shift start + grace period
+- **Check-out**: Calculates actual worked minutes and early departure penalties
+- **Auto Check-out** (Cron Job): Automatically marks overdue open shifts as `ESCAPY` (unauthorized departure)
 
-فيما يلي خريطة الربط الكاملة والمباشرة بين مسارات الـ API في السيرفر مع الشاشات المقابلة لها في دليل تصاميم الواجهات المحدثة باللغتين العربية والإنجليزية في مجلد `workTime_screens/screens`:
+### 📝 Excuse Workflow
+- Employees submit typed excuses (`IN` = late arrival, `OUT` = early departure)
+- Managers review, approve, or reject pending excuses
+- Approved excuses automatically update attendance records and waive deductions
 
-### 🔓 الممرات العامة (Public Route APIs)
+### 💰 Salary Deductions
+- Per-minute deduction calculation based on base salary
+- Handles late arrivals, early departures, and full-day deductions for unauthorized absences
+- In-memory deduction preview without modifying historical records
 
-| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
-| :--- | :--- | :--- | :--- | :--- |
-| `/users/logUp` | `POST` | شاشة تسجيل حساب مدير / شاشة تسجيل حساب موظف | Manager Sign Up / Employee Sign Up | `Manager_Sign_Up_تسجيل_حساب_مدير`<br>`Employee_Sign_Up_تسجيل_حساب_موظف` |
-| `/users/loginIn` | `POST` | شاشة تسجيل الدخول | Login Screen | `Login_Screen_شاشة_تسجيل_الدخول` |
+### 📈 Statistics Engine
+- Centralized `StatisticsHelperService` for all statistical computations
+- Discipline rate calculation with performance tiers (Excellent ≥ 95%, Good ≥ 85%, Fair ≥ 70%)
+- Period summaries for weekly/monthly reports with chart-ready data
+- Employee data enrichment for directory listings
 
----
-
-### 👥 ممرات المستخدم (Authenticated User APIs)
-
-| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
-| :--- | :--- | :--- | :--- | :--- |
-| `/users/search_Word` | `GET` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
-| `/users/updateMyProfile` | `PATCH` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
-| `/users/deleteMyProfile` | `DELETE` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
-
----
-
-### 👷 ممرات الموظف (Employee Exclusive APIs) - `@Auth(Role.EMPLOYEE)`
-
-| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
-| :--- | :--- | :--- | :--- | :--- |
-| `/employee/profile` | `GET` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
-| `/employee/set-manager` | `POST` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
-| `/employee/update-profile` | `PATCH` | شاشة الملف الشخصي للموظف | Employee Profile Screen | `Employee_Profile_الملف_الشخصي_للموظف` |
-| `/employee/today-status` | `GET` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
-| `/employee/weekly-report` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
-| `/employee/monthly-report` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
-| `/employee/my-dashboard` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
-| `/employee/discipline-rate` | `GET` | لوحة تحكم الموظف الشخصية | Employee Personal Dashboard | `Employee_Personal_Dashboard_لوحة_تحكم_الموظف_الشخصية` |
-| `/attendance/check-in` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
-| `/attendance/check-out` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
-| `/attendance/submit-excuse` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
+### 🏢 Department & Shift Management
+- Full CRUD for departments and shifts
+- Referential integrity protection — prevents deletion of departments/shifts with active employees
+- Shift-based grace periods for both arrival (`gracePeriodMinIn`) and departure (`gracePeriodMinOut`)
 
 ---
 
-### 👑 ممرات المدير (Manager Exclusive APIs) - `@Auth(Role.SUPER_ADMIN)`
+## Tech Stack
 
-| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
-| :--- | :--- | :--- | :--- | :--- |
-| `/managing/dashboard` | `GET` | لوحة التحكم بسجيلات الحضور / شاشة نبض الحضور الحي | attendance Reports Dashboard / Live Attendance Pulse | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور`<br>`Live_Attendance_Pulse_نبض_الحضور_الحي` |
-| `/managing/dashboard-registry` | `GET` | السجل الموحد للوحة التحكم (يومي، أسبوعي، شهري) | Unified Dashboard Registry (Daily, Weekly, Monthly) | `Manager_Dashboard_Main-لوحة_التحكم_الرئيسية_للمدير`<br>`Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
-| `/managing/add-employee/:id` | `POST` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
-| `/managing/delete-employee/:id` | `DELETE` | دليل الموظفين / شاشة البحث | Employees Directory / Search Screen | `Employees_Directory_دليل_الموظفين` |
-| `/managing/my-employees` | `GET` | لوحة التحكم بسجيلات الحضور | Attendance Reports Dashboard | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
-| `/managing/make-a-shift` | `POST` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/managing/shifts` | `GET` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/managing/shifts/:id` | `PATCH` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/managing/shifts/:id` | `DELETE` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/managing/audit-employee` | `PATCH` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
-| `/managing/employee-weekly-report/:id` | `GET` | سجل حضور الموظف التفصيلي | Detailed Attendance Log Screen | `Detailed_Attendance_Log_سجل_الحضور_التفصيلي` |
-| `/managing/employee-monthly-report/:id`| `GET` | سجل حضور الموظف التفصيلي | Detailed Attendance Log Screen | `Detailed_Attendance_Log_سجل_الحضور_التفصيلي` |
-| `/managing/discipline-rate/:employeeProfileId`| `GET` | بطاقة معلومات الموظف / نافذة إضافة موظف | Employee Info Card / Add Employee Window | `Employee_Info_Card_بطاقة_معلومات_الموظف` |
-| `/managing/pending-excuses` | `GET` | لوحة التحكم بسجيلات الحضور | Attendance Reports Dashboard | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
-| `/managing/approve-excuse/:id` | `POST` | لوحة التحكم بسجيلات الحضور | Attendance Reports Dashboard | `Attendance_Reports_Dashboard_Main_لوحة_التحكم_بسجيلات_الحضور` |
-| `/managing/auto-checkout` | `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
-| `/managing/salary-deduction/:employeeId`| `POST` | شاشة تسجيل الحضور والانصراف للموظف | Clock-in and Clock-out Screen | `Clock_In_Out_Screen_تسجيل_الحضور_والانصراف` |
+| Layer            | Technology                                                  |
+| :--------------- | :---------------------------------------------------------- |
+| **Runtime**      | [Node.js](https://nodejs.org/) (v18+)                       |
+| **Framework**    | [NestJS](https://nestjs.com/) v11                           |
+| **ORM**          | [Prisma](https://www.prisma.io/) v6                         |
+| **Database**     | [PostgreSQL](https://www.postgresql.org/)                   |
+| **Auth**         | [JWT](https://jwt.io/) via `@nestjs/jwt` + [bcrypt](https://www.npmjs.com/package/bcrypt) |
+| **Validation**   | `class-validator` + `class-transformer`                     |
+| **Date Handling**| `date-fns` + `date-fns-tz`                                 |
+| **API Docs**     | [Swagger](https://swagger.io/) via `@nestjs/swagger`        |
+| **Testing**      | [Jest](https://jestjs.io/) + [Supertest](https://github.com/ladjs/supertest) |
 
 ---
 
-### 🏢 ممرات الأقسام (Department APIs) - `@Auth(Role.SUPER_ADMIN)`
+## Architecture
 
-| المسار (API Route) | طريقة الطلب (Method) | اسم الشاشة بالعربي | Screen Name in English | مجلد الشاشة |
-| :--- | :--- | :--- | :--- | :--- |
-| `/department` | `GET` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/department/:id` | `GET` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/department` | `POST` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/department/:id` | `PATCH` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/department/:id` | `DELETE` | شاشة إدارة الأقسام والورديات | Departments and Shifts Management Screen | `Departments_Shifts_Management_إدارة_الأقسام_والورديات` |
-| `/department/list/names` | `GET` | بطاقة معلومات الموظف / شاشة تسجيل حساب موظف | Employee Info Card / Employee Sign Up | `Employee_Info_Card_بطاقة_معلومات_الموظف`<br>`Employee_Sign_Up_تسجيل_حساب_موظف` |
+The project follows NestJS's modular architecture with clean separation of concerns:
 
----
-
-## 🛠 5. دليل تنصيب وتشغيل المشروع (Setup & Execution Guide)
-
-### المتطلبات المسبقة:
-- تثبيت **Node.js** (إصدار 18 فما فوق).
-- وجود قاعدة بيانات **PostgreSQL** نشطة.
-
-### خطوات التشغيل الفورية:
-
-1. **تثبيت الحزم البرمجية:**
-   ```bash
-   npm install
-   ```
-
-2. **تجهيز ملف البيئة (.env):**
-   قم بإنشاء ملف `.env` في جذر المشروع وضع بداخله رابط قاعدة البيانات ومفتاح تشفير JWT والمنفذ:
-   ```env
-   DATABASE_URL="postgresql://postgres:password@localhost:5432/workecTime?schema=public"
-   JWT_SECRET="YOUR_SUPER_SECRET_KEY_HERE"
-   PORT=3030
-   CORS_ORIGIN="http://localhost:3000"
-   ```
-
-3. **تشغيل ترحيل قاعدة البيانات وتوليد Prisma Client:**
-   ```bash
-   npx prisma migrate dev
-   npx prisma generate
-   ```
-
-4. **تهيئة قاعدة البيانات بالبيانات التجريبية (Seeding):**
-   ```bash
-   npx ts-node -r tsconfig-paths/register src/seed-data.ts
-   ```
-
-5. **تشغيل الخادم في بيئة التطوير المباشرة:**
-   ```bash
-   npm run start:dev
-   ```
-
-6. **بناء المشروع لبيئة الإنتاج والتحقق:**
-   ```bash
-   npm run build
-   ```
+```
+src/
+├── core/                    # Cross-cutting concerns
+│   ├── auth/                #   JWT strategy, auth module
+│   ├── decorators/          #   @Auth(), @CurrentUser(), @Public()
+│   ├── filters/             #   Global exception filter
+│   └── guards/              #   JWT & role-based guards
+│
+├── users/                   # User registration & authentication
+├── employee/                # Employee-specific operations & profile
+├── managing/                # Manager dashboard, reports & admin actions
+├── attendance/              # Check-in/out, excuse handling
+├── department/              # Department CRUD
+│
+├── utilities/               # Shared services
+│   ├── statistics-helper.service.ts   # Central statistics engine
+│   ├── caculaePeriod.service.ts       # Period calculation logic
+│   └── utilities.service.ts           # General utility functions
+│
+├── prisma/                  # Prisma service (DB connection)
+├── app.module.ts            # Root module
+└── main.ts                  # Application bootstrap
+```
 
 ---
 
-## 📄 رخصة الاستخدام (License)
-المشروع متاح تحت رخصة **MIT License** الحرة ومفتوحة المصدر.
+## Getting Started
+
+### Prerequisites
+
+- **Node.js** v18 or higher
+- **PostgreSQL** running locally or remotely
+- **npm** (bundled with Node.js)
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Badi-flata/workTime-backend.git
+cd workTime-backend
+```
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Configure Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# Database
+DATABASE_URL="postgresql://<user>:<password>@localhost:5432/workecTime?schema=public"
+
+# Application
+NODE_ENV="development"
+PORT=3030
+
+# Security
+JWT_SECRET="your-secure-jwt-secret-key"
+
+# CORS
+CORS_ORIGIN="http://localhost:3000"
+```
+
+### 4. Set Up the Database
+
+```bash
+# Run migrations
+npx prisma migrate dev
+
+# Generate Prisma Client
+npx prisma generate
+```
+
+### 5. Seed Sample Data (Optional)
+
+```bash
+npx ts-node -r tsconfig-paths/register src/seed-data.ts
+```
+
+### 6. Start the Development Server
+
+```bash
+npm run start:dev
+```
+
+The server will be running at `http://localhost:3030`.
+
+### 7. Build for Production
+
+```bash
+npm run build
+npm run start:prod
+```
+
+---
+
+## API Reference
+
+### 🔓 Public Routes
+
+| Method | Endpoint          | Description              |
+| :----- | :---------------- | :----------------------- |
+| `POST` | `/users/logUp`    | Register a new account   |
+| `POST` | `/users/loginIn`  | Sign in & receive JWT    |
+
+---
+
+### 👤 Authenticated User Routes
+
+| Method   | Endpoint               | Description                 |
+| :------- | :--------------------- | :-------------------------- |
+| `GET`    | `/users/search_Word`   | Search employees directory  |
+| `PATCH`  | `/users/updateMyProfile` | Update own profile        |
+| `DELETE` | `/users/deleteMyProfile` | Delete own account        |
+
+---
+
+### 👷 Employee Routes — `Role: EMPLOYEE`
+
+| Method | Endpoint                     | Description                          |
+| :----- | :--------------------------- | :----------------------------------- |
+| `GET`  | `/employee/profile`          | Get own employee profile             |
+| `POST` | `/employee/set-manager`      | Link to a manager                    |
+| `PATCH`| `/employee/update-profile`   | Update employee profile details      |
+| `GET`  | `/employee/today-status`     | Get today's attendance status        |
+| `GET`  | `/employee/weekly-report`    | Get personal weekly report           |
+| `GET`  | `/employee/monthly-report`   | Get personal monthly report          |
+| `GET`  | `/employee/my-dashboard`     | Get personal dashboard data          |
+| `GET`  | `/employee/discipline-rate`  | Get own discipline rate              |
+| `POST` | `/attendance/check-in`       | Clock in                             |
+| `POST` | `/attendance/check-out`      | Clock out                            |
+| `POST` | `/attendance/submit-excuse`  | Submit an excuse for late/early      |
+
+---
+
+### 👑 Manager Routes — `Role: SUPER_ADMIN`
+
+| Method   | Endpoint                                  | Description                              |
+| :------- | :---------------------------------------- | :--------------------------------------- |
+| `GET`    | `/managing/dashboard`                     | Get attendance dashboard overview        |
+| `GET`    | `/managing/dashboard-registry`            | Unified registry (daily/weekly/monthly)  |
+| `POST`   | `/managing/add-employee/:id`             | Add employee to management               |
+| `DELETE` | `/managing/delete-employee/:id`          | Remove employee from management          |
+| `GET`    | `/managing/my-employees`                 | List all managed employees               |
+| `POST`   | `/managing/make-a-shift`                 | Create a new shift                       |
+| `GET`    | `/managing/shifts`                       | List all shifts                          |
+| `PATCH`  | `/managing/shifts/:id`                   | Update a shift                           |
+| `DELETE` | `/managing/shifts/:id`                   | Delete a shift                           |
+| `PATCH`  | `/managing/audit-employee`               | Audit/update employee record             |
+| `GET`    | `/managing/employee-weekly-report/:id`   | Get employee's weekly report             |
+| `GET`    | `/managing/employee-monthly-report/:id`  | Get employee's monthly report            |
+| `GET`    | `/managing/discipline-rate/:employeeProfileId` | Get employee's discipline rate     |
+| `GET`    | `/managing/pending-excuses`              | List all pending excuses                 |
+| `POST`   | `/managing/approve-excuse/:id`           | Approve an excuse                        |
+| `POST`   | `/managing/auto-checkout`                | Trigger automatic checkout               |
+| `POST`   | `/managing/salary-deduction/:employeeId` | Calculate salary deduction               |
+
+---
+
+### 🏢 Department Routes — `Role: SUPER_ADMIN`
+
+| Method   | Endpoint                | Description                   |
+| :------- | :---------------------- | :---------------------------- |
+| `GET`    | `/department`           | List all departments          |
+| `GET`    | `/department/:id`       | Get department by ID          |
+| `POST`   | `/department`           | Create a new department       |
+| `PATCH`  | `/department/:id`       | Update a department           |
+| `DELETE` | `/department/:id`       | Delete a department           |
+| `GET`    | `/department/list/names`| Get department names (dropdown)|
+
+---
+
+## Database Schema
+
+The database consists of six core models with well-defined relationships:
+
+```mermaid
+erDiagram
+    User ||--o| AdminProfile : "has"
+    User ||--o| EmployeeProfile : "has"
+    AdminProfile ||--o{ Department : "manages"
+    AdminProfile ||--o{ EmployeeProfile : "supervises"
+    Department ||--o{ EmployeeProfile : "contains"
+    Department ||--o{ Shift : "has"
+    Shift ||--o{ EmployeeProfile : "assigned"
+    EmployeeProfile ||--o{ Attendance : "records"
+    Attendance ||--o{ Excuse : "has"
+
+    User {
+        uuid id PK
+        string email UK
+        string passwordHash
+        string fullName
+        string jobTitle
+        enum role
+    }
+
+    EmployeeProfile {
+        uuid id PK
+        uuid userId FK
+        uuid departmentId FK
+        uuid shiftId FK
+        uuid managerId FK
+        boolean isWorking
+        int salary
+    }
+
+    Attendance {
+        uuid id PK
+        date date
+        datetime checkIn
+        datetime checkOut
+        enum status
+        int delayMinutes
+        int earlyLeaveMinutes
+        int totalWorkedMinutes
+        int salaryDeduction
+    }
+
+    Excuse {
+        uuid id PK
+        string reason
+        enum type
+        boolean isApproved
+        uuid attendanceId FK
+    }
+```
+
+### Enums
+
+| Enum               | Values                                          |
+| :------------------ | :----------------------------------------------- |
+| `Role`             | `SUPER_ADMIN`, `EMPLOYEE`                        |
+| `AttendanceStatus` | `ON_TIME`, `LATE`, `ABSENT`, `EXCUSED`, `ESCAPY` |
+| `ExcuseType`       | `IN` (late arrival), `OUT` (early departure)     |
+
+---
+
+## Available Scripts
+
+| Script              | Description                              |
+| :------------------ | :--------------------------------------- |
+| `npm run start:dev` | Start dev server with hot-reload         |
+| `npm run start`     | Start server (production mode)           |
+| `npm run start:prod`| Start compiled production build          |
+| `npm run build`     | Compile TypeScript to JavaScript         |
+| `npm run lint`      | Run ESLint with auto-fix                 |
+| `npm run format`    | Format code with Prettier                |
+| `npm run test`      | Run unit tests                           |
+| `npm run test:e2e`  | Run end-to-end tests                     |
+| `npm run test:cov`  | Run tests with coverage report           |
+
+---
+
+## Project Structure
+
+```
+nestjs-prisma/
+├── prisma/
+│   ├── schema.prisma          # Database schema definition
+│   └── migrations/            # Migration history
+├── src/
+│   ├── core/                  # Auth, guards, decorators, filters
+│   ├── users/                 # User module (registration, login)
+│   ├── employee/              # Employee module (profile, reports)
+│   ├── managing/              # Manager module (dashboard, admin)
+│   ├── attendance/            # Attendance module (check-in/out)
+│   ├── department/            # Department module (CRUD)
+│   ├── utilities/             # Shared services & helpers
+│   ├── prisma/                # Prisma database service
+│   ├── seed-data.ts           # Database seed script
+│   ├── app.module.ts          # Root application module
+│   └── main.ts                # Bootstrap entry point
+├── test/                      # E2E test suite
+├── .env                       # Environment variables (not committed)
+├── nest-cli.json              # NestJS CLI configuration
+├── tsconfig.json              # TypeScript configuration
+└── package.json               # Dependencies & scripts
+```
+
+---
+
+## Security Best Practices
+
+| Practice                     | Implementation                                          |
+| :--------------------------- | :------------------------------------------------------ |
+| Password Storage             | bcrypt hashing with 10 salt rounds                      |
+| Token Authentication         | JWT with expiration, containing `userId` and `role`     |
+| Input Validation             | Global `ValidationPipe` with whitelist enforcement      |
+| Role-Based Access            | Custom guards checking `SUPER_ADMIN` / `EMPLOYEE` roles |
+| CORS Protection              | Configurable origin via `CORS_ORIGIN` env variable      |
+| Data Integrity               | Foreign key constraints + programmatic deletion guards  |
+| Error Handling               | Global exception filter for consistent error responses  |
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  Built with ❤️ using <a href="https://nestjs.com/">NestJS</a>
+</p>
