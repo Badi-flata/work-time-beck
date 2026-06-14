@@ -5,15 +5,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# نسخ ملفات التبعيات أولاً (لاستفادة من Docker cache)
 COPY package*.json ./
 COPY .npmrc ./
 COPY prisma ./prisma/
 
-# تثبيت جميع التبعيات (بما فيها devDependencies) لإتمام البناء
-RUN npm ci
+# --ignore-scripts يمنع postinstall (prisma generate) من التشغيل المبكر
+RUN npm ci --ignore-scripts
 
-# توليد Prisma Client
+# توليد Prisma Client يدوياً (prisma موجود في devDependencies)
 RUN npx prisma generate
 
 # نسخ بقية الكود وبناء المشروع
@@ -27,22 +26,19 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# نسخ ملفات التبعيات
 COPY package*.json ./
 COPY .npmrc ./
 COPY prisma ./prisma/
 
-# تثبيت تبعيات الإنتاج فقط
-RUN npm ci --omit=dev
+# تثبيت تبعيات الإنتاج فقط (بدون devDeps، بدون postinstall)
+RUN npm ci --omit=dev --ignore-scripts
 
-# توليد Prisma Client في بيئة الإنتاج
-RUN npx prisma generate
+# نسخ Prisma Client المولّد من مرحلة Builder (بدلاً من إعادة التوليد)
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
 # نسخ الكود المبني من مرحلة Builder
 COPY --from=builder /app/dist ./dist
 
-# المنفذ الذي يعمل عليه NestJS
 EXPOSE 3000
 
-# تشغيل التطبيق
 CMD ["node", "dist/main"]
