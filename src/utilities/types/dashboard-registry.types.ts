@@ -19,6 +19,8 @@ export interface PaginationMeta {
 }
 
 export interface DashboardMeta {
+  RatingOrginzation:number;
+  OrginzationLabel:DisciplineRating;
   periodScope: string;
   totalSubordinates: number;
   activeShiftContext: string; // e.g., "الإدارة العامة - الوردية الصباحية"
