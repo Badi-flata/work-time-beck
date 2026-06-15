@@ -4,11 +4,22 @@
 import "dotenv/config";
 import { defineConfig, env } from "prisma/config";
 
+// Simple helper to expand variables like ${VAR} or ${{VAR}} in environment variables
+function expandEnvVars(value: string | undefined): string | undefined {
+  if (!value) return value;
+  return value.replace(/\$\{(?:\{(\w+)\}|(\w+))\}/g, (_, g1, g2) => {
+    const name = g1 || g2;
+    return process.env[name] || "";
+  });
+}
+
 // Check if the current command is for deployment/migration deploy
 const isDeploy = process.argv.includes("deploy") || process.argv.includes("status");
 
-const databaseUrl = (isDeploy && (process.env.DATABASE_PUBLISH_URL || process.env.DATABASE_PUBLIC_URL))
+const rawDatabaseUrl = (isDeploy && (process.env.DATABASE_PUBLISH_URL || process.env.DATABASE_PUBLIC_URL))
   || env("DATABASE_URL");
+
+const databaseUrl = expandEnvVars(rawDatabaseUrl);
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
