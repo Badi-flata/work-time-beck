@@ -297,6 +297,7 @@ export class UtilitiesService {
     // Apply filtering by status if requested
     let filteredRegistry = registry;
     if (status) {
+      
       const s = status.toUpperCase();
       if (s === 'ON_TIME') {
         filteredRegistry = registry.filter(e => e.summary.presentDays > 0);
