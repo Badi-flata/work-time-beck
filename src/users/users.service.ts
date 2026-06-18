@@ -83,6 +83,7 @@ export class UsersService {
       data:{
         id:Id,
         fullName:fullName,
+        jobTitle:Dto.jobTitle,
         email:Dto.email,
         passwordHash:passwordHash,
         phone:Dto.phone,
@@ -138,38 +139,57 @@ export class UsersService {
 
 
 
-  async update(userId: string, Dto: any) {
+  async update(userId: string, Dto: UpdateUserDto) {
     const data: any = {};
-    if (Dto.fullName) {
-      data.fullName = Dto.fullName;
-    } else if (Dto.firstName || Dto.lastName) {
-      data.fullName = [Dto.firstName, Dto.lastName].filter(Boolean).join(' ');
-    }
+    if (Dto.fullName) data.fullName = Dto.fullName;
+
     if (Dto.email) data.email = Dto.email;
     if (Dto.phone) data.phone = Dto.phone;
-    if (Dto.phoneNumber) data.phone = Dto.phoneNumber;
+    if (Dto.jobTitle) data.jobTitle = Dto.jobTitle;
     if (Dto.imageProfile) data.imageProfile = Dto.imageProfile;
-    if (Dto.role) data.role = Dto.role;
-    if (Dto.passwordHash) {
-      data.passwordHash = await bcrypt.hash(Dto.passwordHash, 10);
-    } else if (Dto.password) {
-      data.passwordHash = await bcrypt.hash(Dto.password, 10);
-    }
-
+    
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data,
+      
     });
+   // update departement
+    if(Dto.departmentName){
 
-    const parts = updatedUser.fullName.split(' ');
-    const firstName = parts[0] || '';
-    const lastName = parts.slice(1).join(' ') || '';
+      const department = await this.prisma.department.findUnique({
+        where: { name: Dto.departmentName },
+      });
+
+      if (!department) {
+        throw new NotFoundException(`القسم المحدد (${Dto.departmentName}) غير موجود في النظام.`);
+      }
+
+      await this.prisma.employeeProfile.update({
+        where: { userId: userId },
+        data: { departmentId: department.id },
+      });
+    }
+    
+   // update shfit
+    if(Dto.shiftName){
+
+      const shift = await this.prisma.shift.findFirst({
+        where: { name: Dto.shiftName },
+      });
+
+      if (!shift) {
+        throw new NotFoundException(`القسم المحدد (${Dto.shiftName}) غير موجود في النظام.`);
+      }
+
+      await this.prisma.employeeProfile.update({
+        where: { userId: userId },
+        data: { shiftId: shift.id },
+      });
+    }
+
 
     return {
       ...updatedUser,
-      firstName,
-      lastName,
-      phoneNumber: updatedUser.phone,
     };
   }
 

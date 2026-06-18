@@ -44,18 +44,25 @@ export interface DailyBreakdownEntry {
   checkIn: string | null;       // ISO time or null
   checkOut: string | null;
   earlyLeaveMinutes: number;
-  dayDeduction: number;
+  deduction: number;
   excuseNotes: string | null;
 }
 
 export interface EmployeeSummary {
+  totalDays: number;
   presentDays: number;
+  onTimeDays: number;
+  lateDays: number;
   absentDays: number;
   excusedDays: number;
   escapedDays: number;
-  lateDays: number;
   earlyDepartureDays: number;
-  totalDeductionsInPeriod: number;
+  deductionDays: number;
+  totalDeductions: number;
+  totalWorkedMinutes: number;
+  totalWorkedHours: number;
+  totalDelayMinutes: number;
+  totalEarlyLeaveMinutes: number;
 }
 
 export interface RegistryEntry {

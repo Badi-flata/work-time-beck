@@ -6,6 +6,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ----------------------------------------------------
@@ -26,6 +27,7 @@ enum AttendanceStatus {
 }
 
 enum ExcuseType {
+  FULL_DAY
   IN    // عذر تأخر في الحضور
   OUT   // عذر خروج مبكر أو عدم انصراف
 }

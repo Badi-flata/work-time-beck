@@ -18,6 +18,14 @@ lerna-debug.log*
 # Tests
 /coverage
 /.nyc_output
+*.test
+.seed-dev.js
+seed-dev.js
+simulate-seed.js
+test-dates.js
+test-db.js
+test-db.ts
+.testsprite_tests/*
 
 # IDEs and editors
 /.idea

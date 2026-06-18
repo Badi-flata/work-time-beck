@@ -5,13 +5,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { AttendanceStatus } from '@prisma/client';
-import { startOfDay, addDays } from 'date-fns';
+import { startOfDay, addDays , format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import {
   AttendanceSummary,
   DisciplineRate,
   PeriodSummary,
   EnrichedEmployee,
+  DailyBreakdownEntry
 } from './types/statistics.types';
 import { DisciplineRating } from './types/dashboard-registry.types';
 
@@ -26,21 +27,28 @@ export class StatisticsHelperService {
   // ═══════════════════════════════════════════════════════════════
   // دالة نقية (Pure Function) — لا تستعلم من قاعدة البيانات
   // تأخذ مصفوفة سجلات حضور خام وتُعيد ملخصاً إحصائياً موحداً بتمريرة واحدة O(n)
-  summarizeAttendances(attendances: any[]): AttendanceSummary {
+  summarizeAttendances(attendances: any[] , shiftName?:string): AttendanceSummary {
     const totalDays = attendances.length;
-    let onTimeDays = 0;
-    let lateDays = 0;
-    let absentDays = 0;
+
+    let onTimeDays =  0;
+    let lateDays   =    0;
+    let absentDays  =  0;
     let excusedDays = 0;
     let escapedDays = 0;
-    let earlyDepartureCount = 0;
+    let deductionDays = 0;
+    let earlyDepartureDays = 0;
+
     let totalWorkedMinutes = 0;
     let totalDelayMinutes = 0;
+    let totalDeductions = 0;
     let totalEarlyLeaveMinutes = 0;
-
+    
+    const dailyBreakdown: DailyBreakdownEntry[] = [];
+    
     for (let i = 0; i < totalDays; i++) {
       const a = attendances[i];
       const status = a.status;
+      let deduction = 0;
 
       if (status === AttendanceStatus.ON_TIME) {
         onTimeDays++;
@@ -48,34 +56,56 @@ export class StatisticsHelperService {
         lateDays++;
       } else if (status === AttendanceStatus.ABSENT) {
         absentDays++;
-      } else if (status === AttendanceStatus.EXCUSED) {
+      } else if (status === AttendanceStatus.EXCUSED  || a.isExcusedIn || a.isExcusedOut ) {
         excusedDays++;
       } else if (status === AttendanceStatus.ESCAPY) {
         escapedDays++;
       }
 
       if ((a.earlyLeaveMinutes ?? 0) > 0) {
-        earlyDepartureCount++;
+        earlyDepartureDays++;
+      }
+      if ((a.salaryDeduction ?? 0) > 0) {
+        deductionDays++;
+        deduction = a.salaryDeduction ?? 0;
+        totalDeductions += deduction
       }
 
       totalWorkedMinutes += a.totalWorkedMinutes ?? 0;
       totalDelayMinutes += a.delayMinutes ?? 0;
       totalEarlyLeaveMinutes += a.earlyLeaveMinutes ?? 0;
+
+              const excuseNotes = [a.excuseReasonIn, a.excuseReasonOut].filter(Boolean).join(' | ') || null;
+              const checkIn = a.checkIn ? format(a.checkIn, "HH:mm") : null;
+              const checkOut = a.checkOut ? format(a.checkOut, "HH:mm") : null;
+              dailyBreakdown.push({
+                date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
+                shift: shiftName || 'بدون وردية',
+                status: a.status, 
+                checkIn,
+                checkOut,
+                earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
+                deduction,
+                excuseNotes,
+              });
     }
 
     return {
-      totalDays,
+      days:dailyBreakdown,
+      summary:{totalDays,
       presentDays: onTimeDays + lateDays,
       onTimeDays,
       lateDays,
       absentDays,
       excusedDays,
       escapedDays,
-      earlyDepartureCount,
+      deductionDays,
+      earlyDepartureDays,
       totalWorkedMinutes,
       totalWorkedHours: Math.round((totalWorkedMinutes / 60) * 10) / 10,
       totalDelayMinutes,
-      totalEarlyLeaveMinutes,
+      totalDeductions,
+      totalEarlyLeaveMinutes,}
     };
   }
 
@@ -98,7 +128,7 @@ export class StatisticsHelperService {
       },
     });
 
-    const summary = this.summarizeAttendances(attendances);
+    const {summary} = this.summarizeAttendances(attendances);
     const rate =
       summary.totalDays > 0
         ? Math.round((summary.onTimeDays / summary.totalDays) * 100)
@@ -138,14 +168,14 @@ export class StatisticsHelperService {
       },
     });
 
-    const attendanceSummary = this.summarizeAttendances(attendances);
+    const {summary }= this.summarizeAttendances(attendances);
 
     let disciplineRate: DisciplineRate | undefined;
     if (options?.includeDiscipline !== false) {
       const rate =
-        attendanceSummary.totalDays > 0
+        summary.totalDays > 0
           ? Math.round(
-              (attendanceSummary.onTimeDays / attendanceSummary.totalDays) * 100,
+              (summary.onTimeDays / summary.totalDays) * 100,
             )
           : 100;
 
@@ -154,17 +184,17 @@ export class StatisticsHelperService {
       disciplineRate = {
         rate,
         label,
-        totalDays: attendanceSummary.totalDays,
-        onTimeDays: attendanceSummary.onTimeDays,
-        lateDays: attendanceSummary.lateDays,
-        absentDays: attendanceSummary.absentDays,
+        totalDays: summary.totalDays,
+        onTimeDays: summary.onTimeDays,
+        lateDays: summary.lateDays,
+        absentDays: summary.absentDays,
       };
     }
 
     return {
       ...employeeProfile,
       disciplineRate,
-      attendanceSummary,
+      summary,
     };
   }
 
@@ -176,8 +206,7 @@ export class StatisticsHelperService {
   computePeriodSummary(attendances: any[]): PeriodSummary {
     const summary = this.summarizeAttendances(attendances);
     return {
-      summary,
-      records: attendances,
+      summary
     };
   }
 

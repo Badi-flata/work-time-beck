@@ -6,8 +6,8 @@ import {ApiProperty } from '@nestjs/swagger'
 export class CreateUserDto { 
 
     @IsString()
-    @IsOptional()
-    fullName?: string;
+    @IsNotEmpty()
+    fullName: string;
 
     @IsString()
     @IsNotEmpty()
@@ -20,16 +20,20 @@ export class CreateUserDto {
     email: string;
 
     @IsString()
-    @IsOptional()
-    passwordHash?: string;
+    @IsNotEmpty()
+    passwordHash: string;
 
     @IsString()
     @IsOptional()
     phone?: string; 
 
     @IsString()
-    @IsOptional()
-    departmentName?: string; 
+    @IsNotEmpty()
+    departmentName: string; 
+
+    @IsString()
+    @IsNotEmpty()
+    jobTitle: string; 
 
 }
 

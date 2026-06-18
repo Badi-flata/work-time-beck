@@ -162,54 +162,10 @@ export class UtilitiesService {
     
     for (const emp of subordinates) {
       const atts = emp.attendances;
-      
-      let presentDays = 0;
-      let absentDays = 0;
-      let lateDays = 0;
-      let excusedDays = 0;
-      let escapedDays = 0;
-      let earlyDepartureDays = 0;
-      let employeeDeductions = 0;
-
       const dailyBreakdown: DailyBreakdownEntry[] = [];
+      const {summary , days}= this.statsHelper.summarizeAttendances(atts , emp?.shift?.name);
       
-      for (const a of atts) {
-        const status = a.status;
-        if (status === AttendanceStatus.ON_TIME) {
-          presentDays++;
-        } else if (status === AttendanceStatus.LATE) {
-          lateDays++;
-          presentDays++; // الموظف المتأخر يعتبر حاضراً مادياً
-        } else if (status === AttendanceStatus.ABSENT) {
-          absentDays++;
-        }  else if (status === AttendanceStatus.ESCAPY) {
-          escapedDays++;
-        }
-       else if (status === AttendanceStatus.EXCUSED || a.isExcusedIn || a.isExcusedOut) {
-          excusedDays++;
-        }
-        
-        if ((a.earlyLeaveMinutes ?? 0) > 0) {
-          earlyDepartureDays++;
-        }
-        
-        const dayDeduction = a.salaryDeduction ?? 0;
-        employeeDeductions += dayDeduction;
-
-        const excuseNotes = [a.excuseReasonIn, a.excuseReasonOut].filter(Boolean).join(' | ') || null;
-        const checkIn = a.checkIn ? format(a.checkIn, "HH:mm") : null;
-        const checkOut = a.checkOut ? format(a.checkOut, "HH:mm") : null;
-        dailyBreakdown.push({
-          date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
-          shift: emp.shift?.name || 'بدون وردية',
-          status: a.status, 
-          checkIn,
-          checkOut,
-          earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
-          dayDeduction,
-          excuseNotes,
-        });
-      }
+    dailyBreakdown.push(...days);
 
       // في الوضع اليومي، نعتبر الموظف غائباً فقط إذا لم يكن لديه سجل حضور وقد بدأ وقت ورديته (أو انتهت)
       const nowZoned = toZonedTime(Date.now(), TZ);
@@ -228,7 +184,8 @@ export class UtilitiesService {
       }
       
       if (mode === Modes.DAILY && isShiftActiveOrPast && dailyBreakdown.length === 0) {
-        absentDays++;
+        summary.absentDays += 1;
+        summary.totalDays += 1;
         dailyBreakdown.push({
           date: anchorStr,
           shift: emp.shift?.name || 'بدون وردية',
@@ -236,37 +193,37 @@ export class UtilitiesService {
           checkIn: null,
           checkOut: null,
           earlyLeaveMinutes: 0,
-          dayDeduction: 0,
+          deduction: 0,
           excuseNotes: null,
         });
       }
 
       // حساب العدادات العلوية الفريدة لكل موظف للفترة
-      if (presentDays > 0) {
+      if (summary.presentDays > 0) {
         presentCount++;
       }
-      if (absentDays > 0) {
+      if (summary.absentDays > 0) {
         absentCount++;
       }
-      if (excusedDays > 0) {
+      if (summary.excusedDays > 0) {
         excusedCount++;
       }
-      if (lateDays > 0) {
+      if (summary.lateDays > 0) {
         lateCount++;
       }
-      if (escapedDays > 0) {
+      if (summary.escapedDays > 0) {
         escapedCount++;
       }
-      if (earlyDepartureDays > 0) {
+      if (summary.earlyDepartureDays > 0) {
         earlyDepartureCount++;
       }
-      if (employeeDeductions > 0) {
+      if (summary.deductionDays > 0) {
         deductedCount++;
       }
 
       // حساب التقييم
-      const totalDays = presentDays + absentDays + excusedDays + escapedDays;
-      const onTimeDays = presentDays - lateDays;
+      const totalDays =summary.totalDays
+      const onTimeDays = summary.presentDays - summary.lateDays;
       const rate = totalDays > 0 ? Math.round((onTimeDays / totalDays) * 100) : 0;
       const disciplineRating = this.statsHelper.computeDisciplineRating(rate);
       globlaRating += rate;
@@ -278,13 +235,7 @@ export class UtilitiesService {
         role: emp.user.jobTitle || 'موظف',
         disciplineRating,
         summary: {
-          presentDays,
-          absentDays,
-          excusedDays,
-          escapedDays,
-          lateDays,
-          earlyDepartureDays,
-          totalDeductionsInPeriod: employeeDeductions,
+         ...summary,
         },
         dailyBreakdown,
       });
@@ -299,20 +250,28 @@ export class UtilitiesService {
     if (status) {
       
       const s = status.toUpperCase();
-      if (s === 'ON_TIME') {
-        filteredRegistry = registry.filter(e => e.summary.presentDays > 0);
-      } else if (s === 'LATE') {
-        filteredRegistry = registry.filter(e => e.summary.lateDays > 0);
-      } else if (s === 'ABSENT') {
-        filteredRegistry = registry.filter(e => e.summary.absentDays > 0);
-      } else if (s === 'EXCUSED') {
-        filteredRegistry = registry.filter(e => e.summary.excusedDays > 0);
-      } else if (s === 'DEDUCTED') {
-        filteredRegistry = registry.filter(e => e.summary.totalDeductionsInPeriod > 0);
-      } else if (s === 'ESCAPY') {
-        filteredRegistry = registry.filter(e => e.summary.escapedDays > 0);
-      } else if (s === 'EARLY_LEAVE') {
-        filteredRegistry = registry.filter(e => e.summary.earlyDepartureDays > 0);
+       switch (s) {
+        case 'ON_TIME':
+          filteredRegistry = registry.filter(e => e.summary.presentDays > 0);
+          break;
+        case 'LATE':
+          filteredRegistry = registry.filter(e => e.summary.lateDays > 0);
+          break;
+        case 'ABSENT':
+          filteredRegistry = registry.filter(e => e.summary.absentDays > 0);
+          break;
+        case 'EXCUSED':
+          filteredRegistry = registry.filter(e => e.summary.excusedDays > 0);
+          break;
+        case 'DEDUCTED':
+          filteredRegistry = registry.filter(e => e.summary.totalDeductions > 0);
+          break;
+        case 'ESCAPY':
+          filteredRegistry = registry.filter(e => e.summary.escapedDays > 0);
+          break;
+        case 'EARLY_LEAVE':
+          filteredRegistry = registry.filter(e => e.summary.earlyDepartureDays > 0);
+          break;
       }
     }
 
@@ -383,11 +342,11 @@ export class UtilitiesService {
       orderBy: { date: 'asc' },
     });
 
-    const summaryResult = this.statsHelper.computePeriodSummary(attendances);
+    const {summary:{summary ,days}} = this.statsHelper.computePeriodSummary(attendances);
 
     return {
-      summary: summaryResult.summary,
-      records: summaryResult.records,
+      summary: summary,
+      records: days,
     };
   }
 
@@ -416,11 +375,11 @@ export class UtilitiesService {
       orderBy: { date: 'asc' },
     });
 
-    const summaryResult = this.statsHelper.computePeriodSummary(attendances);
+    const {summary:{summary ,days}} = this.statsHelper.computePeriodSummary(attendances);
 
     return {
-      summary: summaryResult.summary,
-      records: summaryResult.records,
+      summary:summary,
+      records: days,
     };
   }
 

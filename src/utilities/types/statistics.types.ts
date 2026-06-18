@@ -1,7 +1,20 @@
 // أنواع الإحصائيات المشتركة — Shared Statistics Types
 // تُستخدم من قِبل StatisticsHelperService وجميع الـ endpoints
 
+
+export interface DailyBreakdownEntry {
+  date: string;                 // YYYY-MM-DD
+  shift: string | null;
+  status: string;               // ON_TIME | LATE | ABSENT | EXCUSED | ESCAPY
+  checkIn: string | null;       // ISO time or null
+  checkOut: string | null;
+  earlyLeaveMinutes: number;
+  deduction: number;
+  excuseNotes: string | null;
+}
 export interface AttendanceSummary {
+  days: DailyBreakdownEntry[]
+ summary:{ 
   totalDays: number;
   presentDays: number;
   onTimeDays: number;
@@ -9,12 +22,16 @@ export interface AttendanceSummary {
   absentDays: number;
   excusedDays: number;
   escapedDays: number;
-  earlyDepartureCount: number;
+  earlyDepartureDays: number;
+  deductionDays: number;
+  totalDeductions: number;
   totalWorkedMinutes: number;
   totalWorkedHours: number;
   totalDelayMinutes: number;
-  totalEarlyLeaveMinutes: number;
+  totalEarlyLeaveMinutes: number;}
+  
 }
+
 
 export interface DisciplineRate {
   rate: number;          // 0-100
@@ -47,11 +64,10 @@ export interface DashboardStats {
 
 export interface PeriodSummary {
   summary: AttendanceSummary;
-  records: any[];
 }
 
 export interface EnrichedEmployee {
   disciplineRate?: DisciplineRate;
-  attendanceSummary?: AttendanceSummary;
-  [key: string]: any;
+  attendanceSummary?: {summary:AttendanceSummary};
+    [key: string]: any;
 }

@@ -7,8 +7,8 @@ import { defineConfig, env } from "prisma/config";
 // Check if the current command is for deployment/migration deploy
 const isDeploy = process.argv.includes("deploy") || process.argv.includes("status");
 
-const databaseUrl = (isDeploy && (process.env.DATABASE_PUBLISH_URL || process.env.DATABASE_PUBLIC_URL))
-  || env("DATABASE_URL");
+// const databaseUrl = (isDeploy && (process.env.DATABASE_PUBLISH_URL || process.env.DATABASE_PUBLIC_URL))
+//   || env("DATABASE_URL");
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -17,6 +17,6 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: databaseUrl,
+    url: env("DATABASE_URL"),
   },
 });

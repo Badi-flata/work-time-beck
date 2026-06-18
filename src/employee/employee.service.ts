@@ -84,7 +84,7 @@ export class EmployeeService {
     });
 
     const discipline = await this.statsHelper.computeDisciplineRate(user.employeeProfile.id, 30);
-    const weeklySummary = this.statsHelper.computePeriodSummary(attendances);
+    const {summary:{summary ,days}} = this.statsHelper.computePeriodSummary(attendances);
 
     return {
       profile: {
@@ -97,8 +97,8 @@ export class EmployeeService {
         rate: discipline.rate,
         label: discipline.label,
       },
-      weeklySummary: weeklySummary.summary,
-      weeklyLog: weeklySummary.records,
+      weeklySummary: summary,
+      weeklyLog: days,
     };
   }
 
