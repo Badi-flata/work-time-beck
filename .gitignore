@@ -21,6 +21,7 @@ lerna-debug.log*
 *.test
 .seed-dev.js
 seed-dev.js
+seed-dev.json
 simulate-seed.js
 test-dates.js
 test-db.js
