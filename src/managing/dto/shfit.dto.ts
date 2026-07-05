@@ -1,6 +1,10 @@
-import { IsNumber, IsNotEmpty, IsString, IsInt } from "class-validator";
+import { IsNumber, IsNotEmpty, IsString, IsInt, IsOptional } from "class-validator";
 
 export class shift {
+  @IsString()
+  @IsOptional()
+  managerName?: string;
+
   @IsNotEmpty()
   @IsString()
   name: string;

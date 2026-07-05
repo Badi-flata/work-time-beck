@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ManagingDto } from './dto/managing.dto';
 import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
@@ -25,13 +25,13 @@ export class ManagingService {
     if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
 
     const total = await this.prisma.employeeProfile.count({
-      where: { managerId: manager.id }
+      where: { managerId: manager.userId }
     });
 
     const skip = (page - 1) * limit;
 
     const subordinates = await this.prisma.employeeProfile.findMany({
-      where: { managerId: manager.id },
+      where: { managerId: manager.userId },
       skip,
       take: limit,
       include: {
@@ -97,7 +97,7 @@ export class ManagingService {
     // 3. أضافة العامل لدى المدير
     return this.prisma.employeeProfile.update({
       where: { id: check.employeeProfile.id },
-      data: { managerId: manager.id }
+      data: { managerId: manager.userId }
     });
   }
 
@@ -177,6 +177,7 @@ export class ManagingService {
       await this.prisma.shift.create({
         data: {
           id: Id,
+          managerName:Dto.managerName,
           name: Dto.name,
           startTime: Dto.startTime,
           endTime: Dto.endTime,
@@ -192,19 +193,26 @@ export class ManagingService {
   }
 
   // جلب الورديات التابعة لأقسام المدير
-  async getShifts(managerUserId: string) {
-    const manager = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId }
+  async getShifts(userId: string , role: Role) {
+    const manager = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        fullName:true,
+      adminProfile: true 
+
+      }
     });
     if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
-
+       const {fullName,adminProfile} = manager 
+     
     const departments = await this.prisma.department.findMany({
-      where: { managerId: manager.id },
+      where: { managerId: adminProfile?.userId },
       select: { id: true, name: true }
     });
 
     const deptIds = departments.map(d => d.id);
 
+    
     const shifts = await this.prisma.shift.findMany({
       where: { departmentsId: { in: deptIds } },
       include: {
@@ -219,6 +227,7 @@ export class ManagingService {
 
     return shifts.map(s => ({
       id: s.id,
+      managerName:s.managerName,
       name: s.name,
       startTime: s.startTime,
       endTime: s.endTime,
@@ -280,17 +289,7 @@ export class ManagingService {
       data: { isApproved: true }
     });
 
-    if (excuse.type === 'IN') {
-      await this.prisma.attendance.update({
-        where: { id: excuse.attendanceId },
-        data: { isExcusedIn: true }
-      });
-    } else {
-      await this.prisma.attendance.update({
-        where: { id: excuse.attendanceId },
-        data: { isExcusedOut: true }
-      });
-    }
+   
 
     return {
       message: 'تم قبول العذر بنجاح وتحديث حالة الحضور',
@@ -309,7 +308,7 @@ export class ManagingService {
       where: {
         isApproved: false,
         attendance: {
-          employeeProfile: { managerId: manager.id }
+          employeeProfile: { managerId: manager.userId }
         }
       },
       include: {

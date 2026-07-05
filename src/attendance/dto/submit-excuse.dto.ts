@@ -1,9 +1,10 @@
-import { IsNotEmpty, IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsEnum, IsBoolean } from 'class-validator';
 
 // أنواع الأعذار
 enum ExcuseType {
-  IN = 'IN',
-  OUT = 'OUT',
+  LATE = 'LATE',
+  ABSENT = 'ABSENT',
+  EARLY_DEPARTURE = 'EARLY_DEPARTURE',
 }
 
 export class SubmitExcuseDto {
@@ -18,4 +19,8 @@ export class SubmitExcuseDto {
   @IsOptional()
   @IsString()
   attendanceId?: string;
+
+
+  @IsBoolean()
+  isApproved: boolean;
 }

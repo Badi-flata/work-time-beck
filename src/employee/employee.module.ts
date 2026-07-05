@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { EmployeeService } from './employee.service';
 import { EmployeeController } from './employee.controller';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { UtilityModule } from 'src/utilities/utilities.module';
+import { PrismaService } from '../prisma/prisma.service';
+import { UtilityModule } from '../utilities/utilities.module';
 
 @Module({
   imports: [UtilityModule],

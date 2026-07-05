@@ -4,7 +4,7 @@ import {
   BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { randomUUID } from 'crypto';
@@ -23,7 +23,7 @@ export class DepartmentService {
     }
 
     return this.prisma.department.findMany({
-      where: { managerId: admin.id },
+      where: { managerId: admin.userId },
       include: {
         _count: { select: { employees: true } },
         shift: {
@@ -84,7 +84,7 @@ export class DepartmentService {
         id: randomUUID(),
         name: dto.name,
         description: dto.description,
-        managerId: admin.id,
+        managerId: admin.userId,
       },
     });
 

@@ -39,13 +39,22 @@ export interface AggregatedMetrics {
 
 export interface DailyBreakdownEntry {
   date: string;                 // YYYY-MM-DD
-  shift: string | null;
+  managerName:string;
+  departmentName:string;
+  shiftName:string;
   status: string;               // ON_TIME | LATE | ABSENT | EXCUSED | ESCAPY
   checkIn: string | null;       // ISO time or null
   checkOut: string | null;
-  earlyLeaveMinutes: number;
-  deduction: number;
+  shiftStart:string;
+  shiftEnd:string;
+  graceIn:number|15;
+  graceOut:number|30;
+  totalWorkedHours:number|0;
+  lateMinutes:number|0
+  earlyLeaveMinutes:number|0
+  deduction: number|0;
   excuseNotes: string | null;
+  note?:string;
 }
 
 export interface EmployeeSummary {
@@ -68,8 +77,9 @@ export interface EmployeeSummary {
 export interface RegistryEntry {
   employeeId: string;
   name: string;
-  role: string;                 // jobTitle
-  avatar: string;               // imageProfile URL or empty string
+  jobTitle: string;                 
+  avatar: string; 
+  rate: number;              
   disciplineRating: DisciplineRating;
   summary: EmployeeSummary;
   dailyBreakdown: DailyBreakdownEntry[];

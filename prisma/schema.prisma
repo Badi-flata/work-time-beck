@@ -15,6 +15,7 @@ datasource db {
 
 enum Role {
   SUPER_ADMIN // مدير النظام العام (له كامل الصلاحيات)
+  MANAGER // مدير القسم (له صلاحيات الإدارة على الموظفين)
   EMPLOYEE    // الموظف العادي
 }
 
@@ -27,9 +28,9 @@ enum AttendanceStatus {
 }
 
 enum ExcuseType {
-  FULL_DAY
-  IN    // عذر تأخر في الحضور
-  OUT   // عذر خروج مبكر أو عدم انصراف
+  ABSENT
+  LATE    // عذر تأخر في الحضور
+  EARLY_DEPARTURE   // عذر خروج مبكر أو عدم انصراف
 }
 
 // ----------------------------------------------------
@@ -92,7 +93,7 @@ model EmployeeProfile {
 
   // علاقة المدير المباشر: ربط الموظف بالمدير المسؤول عنه
   managerId    String?
-  manager      AdminProfile? @relation(fields: [managerId], references: [id])
+  manager      AdminProfile? @relation(fields: [managerId], references: [userId])
 
   // سجلات الحضور الخاصة بالموظف فقط
   attendances  Attendance[]
@@ -110,22 +111,23 @@ model Department {
   
   // ربط القسم بالمدير المسؤول عنه
   managerId      String
-  manager        AdminProfile?        @relation(fields: [managerId], references: [id])
+  manager        AdminProfile?        @relation(fields: [managerId], references: [userId])
 }
 
 // جدول الورديات
 model Shift {
-  id             String           @id @default(uuid())
-  name           String            
-  startTime      String            
-  endTime        String            
+  id                String           @id @default(uuid())
+  managerName       String?
+  name              String            
+  startTime         String            
+  endTime           String            
   gracePeriodMinIn  Int               @default(15)
   gracePeriodMinOut Int               @default(30)
 
-  departmentsId  String  
-  departments    Department @relation(fields: [departmentsId], references: [id], onDelete: Cascade)
+  departmentsId     String  
+  departments       Department @relation(fields: [departmentsId], references: [id], onDelete: Cascade)
 
-  employees      EmployeeProfile[]
+  employees         EmployeeProfile[]
 }
 
 // جدول الحضور والانصراف (مرتبط فقط بملف الموظف)
@@ -133,18 +135,23 @@ model Attendance {
   id                  String            @id @default(uuid())
   date                DateTime          @db.Date
   checkIn             DateTime? 
-  excuseReasonIn        String?          @db.Text
-  isExcusedIn           Boolean          @default(false)  
-
-  checkOut            DateTime?   
-  excuseReasonOut       String?          @db.Text
-  isExcusedOut          Boolean          @default(false)       
+  checkOut            DateTime?      
   status              AttendanceStatus   @default(ON_TIME)
+  
+  managerName         String?
+  departmentName      String?
+
+  shiftName           String?
+  shiftStart          String?            
+  shiftEnd            String?            
+  graceIn             Int               @default(15)
+  graceOut            Int               @default(30)
   
   salaryDeduction     Int            @default(0)
   delayMinutes        Int                @default(0)
   earlyLeaveMinutes   Int                @default(0)
-  totalWorkedMinutes  Int                @default(0)
+  lateMinutes         Int                @default(0)
+  totalWorkedHours    Int                @default(0)
   adminNotes          String?            @db.Text
   employeeNote        String?            @db.Text  // ملاحظات الموظف عند الخروج
 
@@ -167,8 +174,8 @@ model Excuse {
   createdAt       DateTime    @default(now())
 
   // ارتباط بسجل الحضور
-  attendanceId    String
-  attendance      Attendance  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  attendanceId    String?
+  attendance      Attendance?  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
 
   // من قدم العذر
   submittedById   String

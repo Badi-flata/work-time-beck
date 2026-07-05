@@ -6,27 +6,33 @@ import { Auth } from '../core/decorators/golebl.auth.decorator';
 import { Role } from '@prisma/client';
 import { shift } from './dto/shfit.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
-import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
+import { CurrentUser } from '../core/decorators/currntUser.decorator';
 import { format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { StatisticsHelperService } from '../utilities/statistics-helper.service';
-import { Modes } from 'src/utilities/types/dashboard-registry.types';
+import { Modes } from '../utilities/types/dashboard-registry.types';
+import { AttendanceService } from '../attendance/attendance.service';
 
 
+
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 const TZ = 'Asia/Riyadh';
 
 // الاسم الرئيسي للمسارات
 // main path 
+@ApiTags('managing')
+@ApiBearerAuth()
 @Controller('managing')
 
 // الحراس وصلاحيات الوصول
 // authentication and authorization 
-@Auth(Role.SUPER_ADMIN)
+@Auth(Role.SUPER_ADMIN , Role.MANAGER)
 export class ManagingController {
   constructor(
     private readonly managingService: ManagingService,
     private readonly utility: UtilitiesService,
+    private readonly attend:AttendanceService,
     private readonly statsHelper: StatisticsHelperService,
   ) {}
 
@@ -60,8 +66,12 @@ export class ManagingController {
 
   // GET /managing/shifts
   @Get('shifts')
-  getShifts(@CurrentUser('userId') managerUserId: string) {
-    return this.managingService.getShifts(managerUserId);
+  getShifts(
+    @CurrentUser('userId') userId: string,
+    @CurrentUser('role') role: Role,
+   
+) {
+    return this.managingService.getShifts(userId , role );
   }
 
   // PATCH /managing/shifts/:id
@@ -124,14 +134,13 @@ export class ManagingController {
     );
   }
 
-  @Get('employee-weekly-report/:id')
-  getEmployeeWeeklyReport(@Param('id') employeeUserId: string, @Query('startDate') startDate: string) {
-    return this.utility.getAEmployeeWeeklyReport(employeeUserId, startDate);
-  }
-
-  @Get('employee-monthly-report/:id')
-  getEmployeeMonthlyReport(@Param('id') employeeUserId: string, @Query('startDate') startDate: string) {
-    return this.utility.getMonthlyReport(employeeUserId, startDate);
+  @Get('employee-bounded-report/:id')
+  getEmployeeBoundedReport(
+    @Param('id') employeeUserId: string,
+    @Query('startDate') startDate: string ,
+    @Query('mode') mode: Modes = Modes.WEEKLY
+   ) {
+    return this.utility.fetchBoundedPeriodReport(employeeUserId, startDate , mode);
   }
 
   // GET /managing/discipline-rate/:employeeProfileId
@@ -159,9 +168,10 @@ export class ManagingController {
   // POST /managing/auto-checkout
   // يُشغَّل من قِبل المدير أو Cron Job بعد انتهاء الورديات + فترة السماح
   // يبحث عن كل موظف لم يسجّل انصرافه ويعالجه تلقائياً
-  @Post('auto-checkout')
-  runAutoCheckout() {
-    return this.utility.automaticallyCheckOut();
+  @Post('auto-check')
+
+  runAutoCheckout(@CurrentUser('userId') userId: string) {
+    return this.utility.automaticallyCheck(userId);
   }
 
   // ─── خصم الراتب اليومي ────────────────────────────────────────

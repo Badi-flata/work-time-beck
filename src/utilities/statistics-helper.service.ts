@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from "./../prisma/prisma.service";
 import { AttendanceStatus } from '@prisma/client';
 import { startOfDay, addDays , format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
@@ -30,11 +30,11 @@ export class StatisticsHelperService {
   summarizeAttendances(attendances: any[] , shiftName?:string): AttendanceSummary {
     const totalDays = attendances.length;
 
-    let onTimeDays =  0;
-    let lateDays   =    0;
+    let onTimeDays  =  0;
+    let lateDays    =  0;  
     let absentDays  =  0;
-    let excusedDays = 0;
-    let escapedDays = 0;
+    let excusedDays =  0;
+    let escapedDays =  0;
     let deductionDays = 0;
     let earlyDepartureDays = 0;
 
@@ -47,6 +47,10 @@ export class StatisticsHelperService {
     
     for (let i = 0; i < totalDays; i++) {
       const a = attendances[i];
+      const excuse = a.excuses && a.excuses.length > 0 ? a.excuses[0] : null;
+      const type = excuse?.type;
+      const reason = excuse?.reason;
+      const isApproved = excuse?.isApproved;
       const status = a.status;
       let deduction = 0;
 
@@ -56,7 +60,8 @@ export class StatisticsHelperService {
         lateDays++;
       } else if (status === AttendanceStatus.ABSENT) {
         absentDays++;
-      } else if (status === AttendanceStatus.EXCUSED  || a.isExcusedIn || a.isExcusedOut ) {
+      } else if (status === AttendanceStatus.EXCUSED  || type === "LATE" || 
+        type === "ABSENT" || type === "EARLY_DEPARTURE" ) {
         excusedDays++;
       } else if (status === AttendanceStatus.ESCAPY) {
         escapedDays++;
@@ -75,37 +80,58 @@ export class StatisticsHelperService {
       totalDelayMinutes += a.delayMinutes ?? 0;
       totalEarlyLeaveMinutes += a.earlyLeaveMinutes ?? 0;
 
-              const excuseNotes = [a.excuseReasonIn, a.excuseReasonOut].filter(Boolean).join(' | ') || null;
-              const checkIn = a.checkIn ? format(a.checkIn, "HH:mm") : null;
-              const checkOut = a.checkOut ? format(a.checkOut, "HH:mm") : null;
-              dailyBreakdown.push({
-                date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
-                shift: shiftName || 'بدون وردية',
-                status: a.status, 
-                checkIn,
-                checkOut,
-                earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
-                deduction,
-                excuseNotes,
-              });
+  const excuseNotes = reason || null;
+  const notes = [ a.adminNote , a.employeeNote].filter(Boolean).join(' | ') || null;
+  const checkIn = a.checkIn ? format(a.checkIn, "HH:mm") : null;
+  const checkOut = a.checkOut ? format(a.checkOut, "HH:mm") : null;
+    dailyBreakdown.push({
+        date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
+        status: a.status, 
+        checkIn,
+        checkOut,
+        managerName: a.managerName || 'بدون مدير',
+        departmentName: a.departmentName || 'بدون قسم',
+        shiftName: a.shiftName || 'بدون وردية',
+        shiftStart: a.shiftStart || "07:00",
+        shiftEnd: a.shiftEnd || '18:00',
+        graceIn: a.graceIn || 15,
+        graceOut: a.graceOut || 30,
+        totalWorkedHours:a.totalWorkedHours || 0,
+        lateMinutes: a.lateMinutes ?? 0,
+        earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
+        deduction,
+        notes:notes|| "",
+        excuseNotes ,
+    });
     }
 
+        const rate =
+      totalDays > 0
+        ? Math.round((onTimeDays / totalDays) * 100)
+        : 100; // لا يوجد سجلات = لا مخالفات
+
+    const label = this.computeDisciplineRating(rate);
+
     return {
+      rate,
+      label,
       days:dailyBreakdown,
-      summary:{totalDays,
-      presentDays: onTimeDays + lateDays,
-      onTimeDays,
-      lateDays,
-      absentDays,
-      excusedDays,
-      escapedDays,
-      deductionDays,
-      earlyDepartureDays,
-      totalWorkedMinutes,
-      totalWorkedHours: Math.round((totalWorkedMinutes / 60) * 10) / 10,
-      totalDelayMinutes,
-      totalDeductions,
-      totalEarlyLeaveMinutes,}
+      summary:{
+          totalDays,
+          presentDays: onTimeDays + lateDays,
+          onTimeDays,
+          lateDays,
+          absentDays,
+          excusedDays,
+          escapedDays,
+          deductionDays,
+          earlyDepartureDays,
+          totalWorkedMinutes,
+          totalWorkedHours: Math.round((totalWorkedMinutes / 60) * 10) / 10,
+          totalDelayMinutes,
+          totalDeductions,
+          totalEarlyLeaveMinutes,
+    }
     };
   }
 
@@ -158,7 +184,7 @@ export class StatisticsHelperService {
     const profileId = employeeProfile.id;
     const days = options?.disciplineDays ?? 30;
     const now = toZonedTime(Date.now(), TZ);
-    const start = startOfDay(addDays(now, -days));
+    const start = startOfDay(addDays(now, - days));
 
     // جلب سجلات الحضور لآخر N يوم
     const attendances = await this.prisma.attendance.findMany({
@@ -217,7 +243,7 @@ export class StatisticsHelperService {
   computeDisciplineRating(rate: number): DisciplineRating {
     if (rate >= 95) return 'EXCELLENT';
     if (rate >= 85) return 'VERY_GOOD';
-    if (rate >= 70) return 'GOOD';
+    if (rate >= 60) return 'GOOD';
     return 'NEEDS_IMPROVEMENT';
   }
 }

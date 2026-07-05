@@ -1,8 +1,8 @@
 import { Injectable, UnauthorizedException, BadRequestException, NotFoundException, ForbiddenException, InternalServerErrorException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { AuthService } from 'src/core/auth/auth.service';
+import { PrismaService } from './../prisma/prisma.service';
+import { AuthService } from '../core/auth/auth.service';
 import { Prisma ,Role } from '@prisma/client';
 import { InstanceLinksHost } from '@nestjs/core/injector/instance-links-host';
 import { randomUUID } from 'crypto';
@@ -118,6 +118,8 @@ export class UsersService {
         employeeProfile: true 
       } 
     });
+
+    const userProfile = user?.role === "EMPLOYEE" ? user?.employeeProfile: user?.adminProfile 
    
     if(!user) throw new UnauthorizedException('البريد الالكتروني أو كلمة المرور غير صحيحة.');
       
@@ -131,7 +133,7 @@ export class UsersService {
 
     return {
       token: tokenResult.access_token,
-      Profile: user,
+      Profile: userProfile,
       user: user
     };
   }
@@ -207,12 +209,12 @@ export class UsersService {
 
     if (user?.adminProfile) {
       await this.prisma.employeeProfile.updateMany({
-        where: { managerId: user.adminProfile.id },
+        where: { managerId: user.adminProfile.userId },
         data: { managerId: null }
       });
 
       const departments = await this.prisma.department.findMany({
-        where: { managerId: user.adminProfile.id }
+        where: { managerId: user.adminProfile.userId }
       });
 
       for (const dep of departments) {

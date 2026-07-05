@@ -4,7 +4,7 @@ import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { Auth } from '../core/decorators/golebl.auth.decorator';
 import { Role } from '@prisma/client';
-import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
+import { CurrentUser } from '../core/decorators/currntUser.decorator';
 
 @Controller('department')
 export class DepartmentController {
