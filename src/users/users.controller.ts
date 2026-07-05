@@ -4,8 +4,23 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Role } from '@prisma/client';
 import { Auth } from '../core/decorators/golebl.auth.decorator';
-import { Public } from 'src/core/decorators/Public.decorator';
-import { CurrentUser } from 'src/core/decorators/currntUser.decorator';
+import { Public } from './../core/decorators/Public.decorator';
+import { CurrentUser } from './../core/decorators/currntUser.decorator';
+import { ApiTags, ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiOperation, ApiBody } from '@nestjs/swagger';
+
+export class LoginDto {
+  @ApiProperty({ example: 'admin@worktime.sa', description: 'البريد الإلكتروني' })
+  email: string;
+
+  @ApiPropertyOptional({ example: 'Admin@2026', description: 'كلمة المرور' })
+  password?: string;
+
+  @ApiPropertyOptional({ example: 'Admin@2026', description: 'كلمة المرور البديلة' })
+  passwordHash?: string;
+}
+
+@ApiTags('users')
+@ApiBearerAuth()
 @Auth()
 @Controller('users')
 export class UsersController {
@@ -13,15 +28,17 @@ export class UsersController {
 
   @Public()
   @Post('logUp') 
+  @ApiOperation({ summary: 'إنشاء حساب جديد (مدير أو موظف)' })
+  @ApiBody({ type: CreateUserDto })
   createManager(@Body() body: any) {
     if (!body.fullName) {
-      body.fullName = [body.firstName, body.lastName].filter(Boolean).join(' ') || 'User';
+      body.fullName =  'User';
     }
     if (!body.passwordHash) {
       body.passwordHash = body.password;
     }
     const createUserDto = body as CreateUserDto;
-    if(createUserDto.role === Role.SUPER_ADMIN){
+    if(createUserDto.role === Role.MANAGER || createUserDto.role === Role.SUPER_ADMIN){
       return this.usersService.createManager(createUserDto);
     }
     else{
@@ -32,10 +49,13 @@ export class UsersController {
 
  @Public()
  @Post("loginIn")
+ @ApiOperation({ summary: 'تسجيل الدخول للمستخدم' })
+ @ApiBody({ type: LoginDto })
  loginIn(@Body() body: any) {
     const password = body.passwordHash || body.password;
     return this.usersService.loginIn(password, body.email);
   }
+
  
 
 

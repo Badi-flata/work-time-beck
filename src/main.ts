@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -14,9 +15,10 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      // السماح بالطلبات بدون origin (مثل Postman أو curl)
+      // السماح بالطلبات بدون origin (مثل Postman أو curl أو TestSprite)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
+      // السماح بطلبات TestSprite البعيدة إذا كان الأصل ينتهي بـ testsprite.com
+      if (allowedOrigins.includes(origin) || origin.endsWith('testsprite.com')) {
         return callback(null, true);
       }
       return callback(new Error(`CORS: origin "${origin}" is not allowed`));
@@ -36,6 +38,18 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  // إعداد Swagger لتوثيق واجهات برمجة التطبيقات
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('WorkTime API')
+    .setDescription('API documentation for WorkTime attendance management system')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api-docs', app, document);
+
   await app.listen(process.env.PORT ?? 9000);
 }
 bootstrap();
+
