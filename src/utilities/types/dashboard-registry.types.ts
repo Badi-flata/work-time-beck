@@ -37,7 +37,14 @@ export interface AggregatedMetrics {
   totalDeductedEmployeesCount: number;
 }
 
+interface excuse{
+  type:"LATE"|"ABSENT"|"EARLY_DEPARTURE"
+  reason:string
+  isApproved:boolean
+}
+
 export interface DailyBreakdownEntry {
+  attendanceId?:string;
   date: string;                 // YYYY-MM-DD
   managerName:string;
   departmentName:string;
@@ -53,7 +60,7 @@ export interface DailyBreakdownEntry {
   lateMinutes:number|0
   earlyLeaveMinutes:number|0
   deduction: number|0;
-  excuseNotes: string | null;
+  excuses: excuse[] | [];
   note?:string;
 }
 

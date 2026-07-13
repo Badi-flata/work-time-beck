@@ -169,7 +169,6 @@ export class ManagingController {
   // يُشغَّل من قِبل المدير أو Cron Job بعد انتهاء الورديات + فترة السماح
   // يبحث عن كل موظف لم يسجّل انصرافه ويعالجه تلقائياً
   @Post('auto-check')
-
   runAutoCheckout(@CurrentUser('userId') userId: string) {
     return this.utility.automaticallyCheck(userId);
   }

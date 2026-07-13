@@ -165,7 +165,7 @@ export class UtilitiesService {
     const registry: RegistryEntry[] = [];
 
     for (const emp of subordinates) {
-      const {attendances:atts , shift ,department } = emp;
+      const {attendances:atts , shift ,department ,user } = emp;
       const dailyBreakdown: DailyBreakdownEntry[] = [];
       const { summary, days ,rate, label } = this.statsHelper.summarizeAttendances(atts);
 
@@ -191,6 +191,7 @@ export class UtilitiesService {
         summary.absentDays += 1;
         summary.totalDays += 1;
         dailyBreakdown.push({
+          attendanceId:`${user.fullName}-${AttendanceStatus.ABSENT}-${summary.absentDays}-${anchorStr}`,
           date: anchorStr,
           status: AttendanceStatus.ABSENT,
           managerName: shift?.managerName || 'بدون مدير',
@@ -206,7 +207,7 @@ export class UtilitiesService {
           lateMinutes: 0,
           earlyLeaveMinutes: 0,
           deduction: 0,
-          excuseNotes: null,
+          excuses: [],
         });
       }
 

@@ -47,10 +47,10 @@ export class StatisticsHelperService {
     
     for (let i = 0; i < totalDays; i++) {
       const a = attendances[i];
-      const excuse = a.excuses && a.excuses.length > 0 ? a.excuses[0] : null;
-      const type = excuse?.type;
-      const reason = excuse?.reason;
-      const isApproved = excuse?.isApproved;
+      const excusesArray  = a.excuses && a.excuses.length > 0 ? a.excuses.filter((e: any) => e.isApproved) : [];
+      const hasLateExcuse = excusesArray.some((e: any) => e.type === "LATE");
+      const hasAbsentExcuse = excusesArray.some((e: any) => e.type === "ABSENT");
+      const hasEarlyDepartureExcuse = excusesArray.some((e: any) => e.type === "EARLY_DEPARTURE");
       const status = a.status;
       let deduction = 0;
 
@@ -60,8 +60,7 @@ export class StatisticsHelperService {
         lateDays++;
       } else if (status === AttendanceStatus.ABSENT) {
         absentDays++;
-      } else if (status === AttendanceStatus.EXCUSED  || type === "LATE" || 
-        type === "ABSENT" || type === "EARLY_DEPARTURE" ) {
+      } else if (status === AttendanceStatus.EXCUSED || hasLateExcuse || hasAbsentExcuse || hasEarlyDepartureExcuse) {
         excusedDays++;
       } else if (status === AttendanceStatus.ESCAPY) {
         escapedDays++;
@@ -73,20 +72,21 @@ export class StatisticsHelperService {
       if ((a.salaryDeduction ?? 0) > 0) {
         deductionDays++;
         deduction = a.salaryDeduction ?? 0;
-        totalDeductions += deduction
+        totalDeductions += deduction;
       }
 
-      totalWorkedMinutes += a.totalWorkedMinutes ?? 0;
-      totalDelayMinutes += a.delayMinutes ?? 0;
+      totalWorkedMinutes     += (a.totalWorkedHours ?? 0) * 60;
+      totalDelayMinutes      += a.delayMinutes ?? 0;
       totalEarlyLeaveMinutes += a.earlyLeaveMinutes ?? 0;
 
-  const excuseNotes = reason || null;
-  const notes = [ a.adminNote , a.employeeNote].filter(Boolean).join(' | ') || null;
-  const checkIn = a.checkIn ? format(a.checkIn, "HH:mm") : null;
-  const checkOut = a.checkOut ? format(a.checkOut, "HH:mm") : null;
-    dailyBreakdown.push({
+      const notes = [a.adminNotes || a.adminNote, a.employeeNote].filter(Boolean).join(' | ') || null;
+      const checkIn = a.checkIn ? format(a.checkIn, "HH:mm") : null;
+      const checkOut = a.checkOut ? format(a.checkOut, "HH:mm") : null;
+      const excuseNotes = excusesArray.map((e: any) => e.reason).join(' , ') || null;
+      dailyBreakdown.push({
+        attendanceId: a.id,
         date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
-        status: a.status, 
+        status: a.status,
         checkIn,
         checkOut,
         managerName: a.managerName || 'بدون مدير',
@@ -96,19 +96,20 @@ export class StatisticsHelperService {
         shiftEnd: a.shiftEnd || '18:00',
         graceIn: a.graceIn || 15,
         graceOut: a.graceOut || 30,
-        totalWorkedHours:a.totalWorkedHours || 0,
+        totalWorkedHours: a.totalWorkedHours || 0,
         lateMinutes: a.lateMinutes ?? 0,
         earlyLeaveMinutes: a.earlyLeaveMinutes ?? 0,
         deduction,
-        notes:notes|| "",
-        excuseNotes ,
-    });
+        notes: notes || "",
+        excuses: excusesArray,
+        excuseNotes,
+      });
     }
 
         const rate =
       totalDays > 0
         ? Math.round((onTimeDays / totalDays) * 100)
-        : 100; // لا يوجد سجلات = لا مخالفات
+        : 0; // لا يوجد سجلات = لا مخالفات
 
     const label = this.computeDisciplineRating(rate);
 
@@ -158,7 +159,7 @@ export class StatisticsHelperService {
     const rate =
       summary.totalDays > 0
         ? Math.round((summary.onTimeDays / summary.totalDays) * 100)
-        : 100; // لا يوجد سجلات = لا مخالفات
+        : 0; // لا يوجد سجلات = لا مخالفات
 
     const label = this.computeDisciplineRating(rate);
 

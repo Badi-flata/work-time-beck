@@ -2,8 +2,13 @@
 // تُستخدم من قِبل StatisticsHelperService وجميع الـ endpoints
 
 import { DisciplineRating } from "./dashboard-registry.types";
-
+interface excuse{
+  type:"LATE"|"ABSENT"|"EARLY_DEPARTURE"
+  reason:string
+  isApproved:boolean
+}
 export interface DailyBreakdownEntry {
+  attendanceId:string;
   date: string;                 // YYYY-MM-DD
   managerName:string;
   departmentName:string;
@@ -13,7 +18,7 @@ export interface DailyBreakdownEntry {
   checkOut: string | null;
   earlyLeaveMinutes: number;
   deduction: number;
-  excuseNotes: string | null;
+  excuses: excuse[] | [];
   shiftStart:string;
   shiftEnd:string;
   graceIn:number;
@@ -21,6 +26,7 @@ export interface DailyBreakdownEntry {
   notes?:string;
   totalWorkedHours:number;
   lateMinutes:number;
+  excuseNotes?: string | null;
 }
 export interface AttendanceSummary {
   rate: number;
@@ -46,12 +52,12 @@ export interface AttendanceSummary {
 
 
 export interface DisciplineRate {
-  rate: number;          // 0-100
-  label: string;         // "ممتاز" | "جيد جداً" | "جيد" | "يحتاج تحسين"
-  totalDays: number;
-  onTimeDays: number;
-  lateDays: number;
-  absentDays: number;
+  rate:         number;          // 0-100
+  label:        string;         // "ممتاز" | "جيد جداً" | "جيد" | "يحتاج تحسين"
+  totalDays:    number;
+  onTimeDays:   number;
+  lateDays:     number;
+  absentDays:   number;
 }
 
 export interface DashboardCounts {

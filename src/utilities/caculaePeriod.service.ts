@@ -90,7 +90,7 @@ export class CalculatePeriodService {
         startDate = new Date(Date.UTC(sy, sm - 1, sd));
       } else {
         startDate = new Date(referenceDateUtc);
-        startDate.setUTCMonth(startDate.getUTCMonth() - 1);
+        startDate.setUTCMonth(startDate.getUTCMonth() -3);
       }
       
       if (customEndDate) {
