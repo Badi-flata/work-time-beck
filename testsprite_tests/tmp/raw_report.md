@@ -5,147 +5,114 @@
 
 ## 1️⃣ Document Metadata
 - **Project Name:** nestjs-prisma
-- **Date:** 2026-05-25
+- **Date:** 2026-07-05
 - **Prepared by:** TestSprite AI Team
 
 ---
 
 ## 2️⃣ Requirement Validation Summary
 
-#### Test TC001 test_user_signup_with_valid_data
-- **Test Code:** [TC001_test_user_signup_with_valid_data.py](./TC001_test_user_signup_with_valid_data.py)
+#### Test TC001 post users logup user registration
+- **Test Code:** [TC001_post_users_logup_user_registration.py](./TC001_post_users_logup_user_registration.py)
 - **Test Error:** Traceback (most recent call last):
   File "/var/task/handler.py", line 258, in run_with_retry
     exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
+  File "<string>", line 99, in <module>
+  File "<string>", line 24, in test_post_users_logup_user_registration
+AssertionError: Expected 201, got 400
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/e9fd05e5-cc29-43ec-bdc3-19eb4f1143e4
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/5c41b99e-73a5-4c45-a293-1c3b9b0f312d
 - **Status:** ❌ Failed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC002 test_user_login_with_valid_credentials
-- **Test Code:** [TC002_test_user_login_with_valid_credentials.py](./TC002_test_user_login_with_valid_credentials.py)
+#### Test TC002 post users loginin user login
+- **Test Code:** [TC002_post_users_loginin_user_login.py](./TC002_post_users_loginin_user_login.py)
 - **Test Error:** Traceback (most recent call last):
   File "/var/task/handler.py", line 258, in run_with_retry
     exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
+  File "<string>", line 59, in <module>
+  File "<string>", line 29, in test_post_users_loginin_user_login
+AssertionError: Expected 201 for valid login, got 400
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/34605beb-42ef-4824-b59b-ecd06a0aa628
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/3eac0239-2aba-4483-b2d7-cfc06ea0e8ad
 - **Status:** ❌ Failed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC003 test_search_users_with_valid_jwt_and_keyword
-- **Test Code:** [TC003_test_search_users_with_valid_jwt_and_keyword.py](./TC003_test_search_users_with_valid_jwt_and_keyword.py)
+#### Test TC003 post attendance checkin employee checkin
+- **Test Code:** [TC003_post_attendance_checkin_employee_checkin.py](./TC003_post_attendance_checkin_employee_checkin.py)
 - **Test Error:** Traceback (most recent call last):
   File "/var/task/handler.py", line 258, in run_with_retry
     exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
+  File "<string>", line 43, in <module>
+  File "<string>", line 26, in test_post_attendance_checkin_employee_checkin
+AssertionError: Expected 201 for authorized check-in, got 400
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/e60a8b4b-8b40-47dc-8f21-f936740310db
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/8fa55834-e381-40db-8ea8-e2ddd2f87caf
 - **Status:** ❌ Failed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC004 test_update_profile_with_valid_jwt_and_payload
-- **Test Code:** [TC004_test_update_profile_with_valid_jwt_and_payload.py](./TC004_test_update_profile_with_valid_jwt_and_payload.py)
+#### Test TC004 post attendance checkout employee checkout
+- **Test Code:** [TC004_post_attendance_checkout_employee_checkout.py](./TC004_post_attendance_checkout_employee_checkout.py)
 - **Test Error:** Traceback (most recent call last):
+  File "<string>", line 21, in test_post_attendance_checkout_employee_checkout
+AssertionError: Expected 201 for valid token, got 400
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
   File "/var/task/handler.py", line 258, in run_with_retry
     exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
+  File "<string>", line 39, in <module>
+  File "<string>", line 23, in test_post_attendance_checkout_employee_checkout
+AssertionError: Request with valid token failed: Expected 201 for valid token, got 400
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/5b0b99a9-924c-4c6e-96a3-dde9ae1bf455
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/895201e4-e77d-449c-b20b-4623ce5c10e1
 - **Status:** ❌ Failed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC005 test_delete_profile_with_valid_jwt
-- **Test Code:** [TC005_test_delete_profile_with_valid_jwt.py](./TC005_test_delete_profile_with_valid_jwt.py)
+#### Test TC005 get attendance shift get shift data
+- **Test Code:** [TC005_get_attendance_shift_get_shift_data.py](./TC005_get_attendance_shift_get_shift_data.py)
 - **Test Error:** Traceback (most recent call last):
   File "/var/task/handler.py", line 258, in run_with_retry
     exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
+  File "<string>", line 37, in <module>
+  File "<string>", line 18, in test_get_attendance_shift
+AssertionError: Expected 200, got 404
 
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/1a6445aa-434b-41ea-99f4-c9efd022c02c
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/f5beb73e-ca7f-4d9f-9b2d-20423b48363f
 - **Status:** ❌ Failed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC006 test_attendance_check_in_with_valid_jwt
-- **Test Code:** [TC006_test_attendance_check_in_with_valid_jwt.py](./TC006_test_attendance_check_in_with_valid_jwt.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/f34b8c64-6444-47bc-9307-e218ad6b6dc1
-- **Status:** ❌ Failed
+#### Test TC006 post managing auto checkout automatic checkout
+- **Test Code:** [TC006_post_managing_auto_checkout_automatic_checkout.py](./TC006_post_managing_auto_checkout_automatic_checkout.py)
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/82de57a6-bf3d-49fe-952f-d8721ea5952b
+- **Status:** ✅ Passed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC007 test_attendance_check_out_after_check_in
-- **Test Code:** [TC007_test_attendance_check_out_after_check_in.py](./TC007_test_attendance_check_out_after_check_in.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/d223fe20-6d35-4e8e-9069-8cfecafee561
-- **Status:** ❌ Failed
+#### Test TC007 get managing pending excuses list excuses
+- **Test Code:** [TC007_get_managing_pending_excuses_list_excuses.py](./TC007_get_managing_pending_excuses_list_excuses.py)
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/23160fb8-d5be-419f-9af0-51459ad2e510
+- **Status:** ✅ Passed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
-#### Test TC008 test_manager_dashboard_with_valid_jwt_and_date
-- **Test Code:** [TC008_test_manager_dashboard_with_valid_jwt_and_date.py](./TC008_test_manager_dashboard_with_valid_jwt_and_date.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/3c9277bb-d6c9-4b5f-88d9-186a1aec55fa
-- **Status:** ❌ Failed
-- **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
----
-
-#### Test TC009 test_employee_profile_retrieval_with_valid_jwt
-- **Test Code:** [TC009_test_employee_profile_retrieval_with_valid_jwt.py](./TC009_test_employee_profile_retrieval_with_valid_jwt.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/ede81270-54ab-4293-8fc3-a13f40793f02
-- **Status:** ❌ Failed
-- **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
----
-
-#### Test TC010 test_employee_today_status_with_valid_jwt
-- **Test Code:** [TC010_test_employee_today_status_with_valid_jwt.py](./TC010_test_employee_today_status_with_valid_jwt.py)
-- **Test Error:** Traceback (most recent call last):
-  File "/var/task/handler.py", line 258, in run_with_retry
-    exec(code, exec_env)
-  File "<string>", line 3, in <module>
-AssertionError: Test code generation failed
-
-- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/642cd1d3-a1c5-400a-aae7-43f5f50709d2/a371c92c-6e4b-46b7-826e-e58ac1a00627
-- **Status:** ❌ Failed
+#### Test TC008 post managing approve excuse approve excuse
+- **Test Code:** [TC008_post_managing_approve_excuse_approve_excuse.py](./TC008_post_managing_approve_excuse_approve_excuse.py)
+- **Test Visualization and Result:** https://www.testsprite.com/dashboard/mcp/tests/30866bc5-a112-4e24-8f17-9d438bb83f5b/7fde3660-621e-4ba4-b302-a0b5ae556f30
+- **Status:** ✅ Passed
 - **Analysis / Findings:** {{TODO:AI_ANALYSIS}}.
 ---
 
 
 ## 3️⃣ Coverage & Matching Metrics
 
-- **0.00** of tests passed
+- **37.50** of tests passed
 
 | Requirement        | Total Tests | ✅ Passed | ❌ Failed  |
 |--------------------|-------------|-----------|------------|

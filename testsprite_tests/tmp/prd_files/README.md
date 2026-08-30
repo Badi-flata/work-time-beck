@@ -1,147 +1,407 @@
-# نظام إدارة الحضور والانصراف (NestJS + Prisma + PostgreSQL)
-## Attendance & Departure Management Server
+<p align="center">
+  <img src="https://nestjs.com/img/logo-small.svg" width="80" alt="NestJS Logo" />
+</p>
 
-مرحباً بك في المستودع البرمجي لنظام إدارة الحضور والانصراف الخلفي، المبني باستخدام إطار العمل **NestJS** ومحرك الاتصال **Prisma ORM** وقاعدة بيانات **PostgreSQL**.
+<h1 align="center">WorkTime — Backend API</h1>
 
-تم تصميم هذا الخادم بأسلوب برمجية متطور وبنية هندسية متينة لدعم تطبيقات الويب والجوال المتخصصة في تتبع ساعات العمل، مع توفير واجهات برمجية متكاملة لكل من **المدير (SUPER_ADMIN)** و **الموظف/العامل (EMPLOYEE)**.
+<p align="center">
+  A robust, production-ready <strong>Attendance & Workforce Management</strong> REST API built with <strong>NestJS</strong>, <strong>Prisma ORM</strong>, and <strong>PostgreSQL</strong>.
+</p>
 
----
-
-## 🏗 البنية البرمجية والهندسة (Architecture & Design)
-
-يتبع المشروع أفضل معايير البرمجة النظيفة (Clean Code) والبنية الطبقية لـ NestJS:
-- **Controllers (أجهزة التحكم):** لمعالجة الطلبات وإرجاع الردود المناسبة مع التحقق من الهوية والصلاحيات.
-- **Services (الخدمات):** تحتوي على منطق العمل الأساسي والعمليات الحسابية للحضور والانصراف.
-- **Decorators & Guards:** حماية المسارات والتحقق من الأدوار واستخلاص بيانات المستخدم بأمان.
-- **Prisma Service:** كطبقة اتصال مجهزة بـ Connection Pool متين مع PostgreSQL.
-
----
-
-## 📊 قاعدة البيانات والعلاقات (Database Schema)
-
-تتألف قاعدة البيانات من 6 جداول رئيسية مترابطة بعلاقات وثيقة:
-1. **User (المستخدم):** الحساب الرئيسي لتسجيل الدخول والمصادقة (يحتوي على البريد وكلمة المرور المشفرة والدور).
-2. **AdminProfile (ملف المدير):** مخصص للمديرين لإدارة الأقسام والاطلاع على الموظفين الخاضعين لإشرافهم المباشر.
-3. **EmployeeProfile (ملف الموظف):** يحتوي على تفاصيل العمل مثل الراتب، الوردية، القسم، والمدير المشرف.
-4. **Department (القسم):** الأقسام الإدارية والتشغيلية في المنشأة.
-5. **Shift (الوردية/المناوبة):** تحدد أوقات الحضور والانصراف وفترة السماح بالدقائق لكل قسم.
-6. **Attendance (سجل الحضور):** يحتوي على أوقات الحضور والانصراف الفعلي، الدقائق المتأخرة، دقائق المغادرة المبكرة، وإجمالي دقائق العمل، بالإضافة إلى الملاحظات الإدارية.
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#api-reference">API Reference</a> •
+  <a href="#database-schema">Database Schema</a> •
+  <a href="#license">License</a>
+</p>
 
 ---
 
-## 🔑 نظام الأمان والمصادقة (Security & Authentication)
+## Overview
 
-- **تشفير كلمات المرور:** يتم استخدام مكتبة `bcrypt` لتشفير كلمات المرور بمستوى Salt قوي (10 جولات) عند التسجيل، ومقارنتها بشكل آمن عند تسجيل الدخول.
-- **حماية الممرات (JWT Tokens):** يتم توليد الـ Access Token يحتوي على (اسم المستخدم، معرف المستخدم، والدور الإداري) عند تسجيل الدخول الناجح.
-- **الحراس المخصصون (Custom Guards & Decorators):**
-  - `@Auth(Role.SUPER_ADMIN)`: يقصر الوصول للمسار الإداري على المديرين فقط.
-  - `@Auth(Role.EMPLOYEE)`: يقصر الوصول للمسار على الموظفين فقط.
-  - `@CurrentUser('userId')`: لاستخراج معرف المستخدم المسجل بأمان من كود الـ JWT مباشرة من الطلب كسلسلة نصية (string).
-  - `@Public()`: للسماح بالوصول العام للمسارات مثل تسجيل الدخول وإنشاء الحساب دون الحاجة لـ Token.
+**WorkTime Backend** is the server-side engine for a comprehensive employee attendance and departure tracking system. It provides a clean, well-structured API that powers both web and mobile frontends, enabling HR managers to monitor workforce productivity, manage shifts and departments, process excuses, and generate detailed attendance reports — all in real-time.
 
 ---
 
-## 🚀 الميزات والوظائف الأساسية (Core Features)
+## Features
 
-### 1. لوحة تحكم تفاعلية للمدير (Manager Dashboard)
-تمكن المدير من الحصول على كشف فوري وحي لليوم الحالي:
-- إجمالي عدد الموظفين المشرف عليهم.
-- عدد الحاضرين (الحاضرين في الوقت المناسب أو المتأخرين).
-- عدد الغائبين (سواء ليس لديهم سجل أو حالتهم الغياب).
-- عدد الموظفين الحاصلين على عذر إداري (EXCUSED).
-- عدد المتأخرين والموظفين الذين حضروا بالوقت المحدد بدقة.
+### 🔐 Authentication & Authorization
+- **JWT-based authentication** with role-based access control (`SUPER_ADMIN` / `EMPLOYEE`)
+- **bcrypt password hashing** (10 salt rounds) for secure credential storage
+- Custom decorators: `@Auth()`, `@CurrentUser()`, `@Public()` for clean route protection
+- Global `ValidationPipe` with `whitelist` + `forbidNonWhitelisted` to reject unknown fields
 
-### 2. الحضور اليومي للموظف (Daily Attendance Process)
-- **تسجيل الحضور (Check-In):** يقوم النظام بالتحقق من الوردية وتوقيت الحضور، وحساب دقائق التأخير بعد تخطي فترة السماح (Grace Period) تلقائياً، وتعيين الحالة إلى (LATE) أو (ON_TIME).
-- **تسجيل الانصراف (Check-Out):** يقوم بحساب إجمالي وقت العمل الفعلي بالدقائق، بالإضافة إلى دقائق المغادرة المبكرة (Early Leave) تلقائياً في حال انصراف العامل قبل انتهاء ورديته.
+### 📊 Real-Time Dashboard
+- **Unified Dashboard Registry** with three modes: `daily`, `weekly`, and `monthly`
+- Smart week-boundary splitting within month limits to prevent cross-month overlap
+- Live attendance pulse showing present, absent, late, excused, and escaped employees
 
-### 3. إدارة الموظفين والورديات (Staff & Shift Management)
-- **إضافة عامل للمدير:** إمكانية ربط أي عامل بالمدير المشرف.
-- **حذف عامل:** فك ارتباط العامل من المدير وتعيين المشرف كـ `null` دون حذف بيانات العامل التاريخية لضمان سلامة البيانات.
-- **تحديث الملف الإداري:** تعديل الراتب، حالة العمل (نشط/غير نشط)، وتغيير الوردية.
-- **إنشاء ورديات عمل:** مرونة كاملة للمدير في إنشاء ورديات عمل بأوقات بدء وانتهاء وفترات سماح مخصصة.
-- **البحث الآمن:** إمكانية البحث عن أي موظف أو مدير عن طريق الاسم، البريد الإلكتروني، أو الهاتف باستخدام خوارزمية بحث Prisma آمنة ومقاومة للثغرات البرمجية.
+### ⏱ Attendance Management
+- **Check-in**: Automatic lateness detection by comparing arrival time against shift start + grace period
+- **Check-out**: Calculates actual worked minutes and early departure penalties
+- **Auto Check-out** (Cron Job): Automatically marks overdue open shifts as `ESCAPY` (unauthorized departure)
 
-### 4. كشف السجلات التاريخية والتقارير (Reports & History logs)
-- **للموظف:** استعراض سجلات حضوره الأسبوعية والشهرية التفصيلية.
-- **للمدير:**
-  - استعراض سجل أسبوعي أو شهري لجميع الموظفين التابعين له مع تفاصيل الحضور لكل يوم.
-  - استعراض سجل أسبوعي أو شهري تفصيلي لموظف محدد لديه.
+### 📝 Excuse Workflow
+- Employees submit typed excuses (`IN` = late arrival, `OUT` = early departure)
+- Managers review, approve, or reject pending excuses
+- Approved excuses automatically update attendance records and waive deductions
 
----
+### 💰 Salary Deductions
+- Per-minute deduction calculation based on base salary
+- Handles late arrivals, early departures, and full-day deductions for unauthorized absences
+- In-memory deduction preview without modifying historical records
 
-## 🛠 دليل تنصيب وتشغيل المشروع (Setup & Execution Guide)
+### 📈 Statistics Engine
+- Centralized `StatisticsHelperService` for all statistical computations
+- Discipline rate calculation with performance tiers (Excellent ≥ 95%, Good ≥ 85%, Fair ≥ 70%)
+- Period summaries for weekly/monthly reports with chart-ready data
+- Employee data enrichment for directory listings
 
-### المتطلبات المسبقة:
-- تثبيت **Node.js** (إصدار 18 فما فوق).
-- وجود قاعدة بيانات **PostgreSQL** نشطة.
-
-### خطوات التشغيل الفورية:
-
-1. **تثبيت الحزم البرمجية:**
-   ```bash
-   npm install
-   ```
-
-2. **تجهيز ملف البيئة (.env):**
-   قم بإنشاء ملف `.env` في جذر المشروع وضع بداخله رابط قاعدة البيانات ومفتاح تشفير JWT:
-   ```env
-   DATABASE_URL="postgresql://postgres:password@localhost:5432/workecTime?schema=public"
-   JWT_SECRET="YOUR_SUPER_SECRET_KEY_HERE"
-   ```
-
-3. **تطبيق قاعدة البيانات وتوليد Prisma Client:**
-   ```bash
-   npx prisma db push
-   npx prisma generate
-   ```
-
-4. **تشغيل الخادم في بيئة التطوير المباشرة:**
-   ```bash
-   npm run start:dev
-   ```
-
-5. **بناء المشروع لبيئة الإنتاج:**
-   ```bash
-   npm run build
-   ```
+### 🏢 Department & Shift Management
+- Full CRUD for departments and shifts
+- Referential integrity protection — prevents deletion of departments/shifts with active employees
+- Shift-based grace periods for both arrival (`gracePeriodMinIn`) and departure (`gracePeriodMinOut`)
 
 ---
 
-## 📚 دليل الواجهات البرمجية (API Endpoint Reference)
+## Tech Stack
 
-### 🔓 الممرات العامة (Public Route APIs)
-- `POST /users/logUp` - تسجيل مدير جديد (SUPER_ADMIN) أو عامل جديد (EMPLOYEE) اعتماداً على الحقل `role`.
-- `POST /users/loginIn` - تسجيل الدخول والحصول على رمز المصادقة (Bearer Access Token).
-
-### 👥 ممرات المستخدم (Authenticated User APIs)
-- `GET /users/search_Word?search_Word=...` - بحث شامل وآمن للمستخدمين.
-- `PATCH /users/updateMyProfile` - تحديث الملف الشخصي للمستخدم الحالي.
-- `DELETE /users/deleteMyProfile` - حذف حساب المستخدم الحالي.
-
-### 👷 ممرات الموظف (Employee Exclusive APIs) - `@Auth(Role.EMPLOYEE)`
-- `GET /employee/profile` - جلب ملف الموظف الكامل مع الوردية، القسم، والمدير.
-- `POST /employee/set-manager` - ربط وتعيين مدير للموظف.
-- `PATCH /employee/update-profile` - تحديث بيانات الموظف.
-- `GET /employee/today-status` - جلب حالة الحضور الحالية لليوم الحالي للوردية.
-- `GET /employee/weekly-report?startDate=YYYY-MM-DD` - السجل الأسبوعي للموظف الحالي.
-- `GET /employee/monthly-report?startDate=YYYY-MM-DD` - السجل الشهري للموظف الحالي.
-- `POST /attendance/check-in` - تسجيل حضور يومي فوري للموظف.
-- `POST /attendance/check-out` - تسجيل انصراف يومي فوري للموظف.
-
-### 👑 ممرات المدير (Manager Exclusive APIs) - `@Auth(Role.SUPER_ADMIN)`
-- `GET /managing/dashboard?date=YYYY-MM-DD` - لوحة تحكم إحصائية تفاعلية للحاضرين والغائبين والمتأخرين لليوم المحدد.
-- `POST /managing/add-employee/:id` - إضافة وربط عامل بالمدير الحالي.
-- `DELETE /managing/delete-employee/:id` - فك ارتباط عامل من المدير الحالي.
-- `GET /managing/my-employees` - جلب كشف بجميع العمال المشرف عليهم ورواتبهم وحضورهم التاريخي.
-- `POST /managing/make-a-shift` - إضافة وردية/مناوبة عمل جديدة لقسم معين.
-- `PATCH /managing/audit-employee?email=...&employeeId=...` - تدقيق وتعديل بيانات الموظف (الراتب، الوردية، حالة العمل) وتعديل حالة سجل الحضور اليومي وكتابة الملاحظات الإدارية.
-- `GET /managing/weekly-report?startDate=YYYY-MM-DD` - التقرير الأسبوعي لجميع موظفي المدير.
-- `GET /managing/monthly-report?startDate=YYYY-MM-DD` - التقرير الشهري لجميع موظفي المدير.
-- `GET /managing/employee-weekly-report/:id?startDate=YYYY-MM-DD` - التقرير الأسبوعي لموظف محدد خاضع للإشراف.
-- `GET /managing/employee-monthly-report/:id?startDate=YYYY-MM-DD` - التقرير الشهري لموظف محدد خاضع للإشراف.
+| Layer            | Technology                                                  |
+| :--------------- | :---------------------------------------------------------- |
+| **Runtime**      | [Node.js](https://nodejs.org/) (v18+)                       |
+| **Framework**    | [NestJS](https://nestjs.com/) v11                           |
+| **ORM**          | [Prisma](https://www.prisma.io/) v6                         |
+| **Database**     | [PostgreSQL](https://www.postgresql.org/)                   |
+| **Auth**         | [JWT](https://jwt.io/) via `@nestjs/jwt` + [bcrypt](https://www.npmjs.com/package/bcrypt) |
+| **Validation**   | `class-validator` + `class-transformer`                     |
+| **Date Handling**| `date-fns` + `date-fns-tz`                                 |
+| **API Docs**     | [Swagger](https://swagger.io/) via `@nestjs/swagger`        |
+| **Testing**      | [Jest](https://jestjs.io/) + [Supertest](https://github.com/ladjs/supertest) |
 
 ---
 
-## 📄 رخصة الاستخدام (License)
-المشروع متاح تحت رخصة **MIT License** الحرة ومفتوحة المصدر.
+## Architecture
+
+The project follows NestJS's modular architecture with clean separation of concerns:
+
+```
+src/
+├── core/                    # Cross-cutting concerns
+│   ├── auth/                #   JWT strategy, auth module
+│   ├── decorators/          #   @Auth(), @CurrentUser(), @Public()
+│   ├── filters/             #   Global exception filter
+│   └── guards/              #   JWT & role-based guards
+│
+├── users/                   # User registration & authentication
+├── employee/                # Employee-specific operations & profile
+├── managing/                # Manager dashboard, reports & admin actions
+├── attendance/              # Check-in/out, excuse handling
+├── department/              # Department CRUD
+│
+├── utilities/               # Shared services
+│   ├── statistics-helper.service.ts   # Central statistics engine
+│   ├── caculaePeriod.service.ts       # Period calculation logic
+│   └── utilities.service.ts           # General utility functions
+│
+├── prisma/                  # Prisma service (DB connection)
+├── app.module.ts            # Root module
+└── main.ts                  # Application bootstrap
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Node.js** v18 or higher
+- **PostgreSQL** running locally or remotely
+- **npm** (bundled with Node.js)
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Badi-flata/workTime-backend.git
+cd workTime-backend
+```
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Configure Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# Database
+DATABASE_URL="postgresql://<user>:<password>@localhost:5432/workecTime?schema=public"
+
+# Application
+NODE_ENV="development"
+PORT=3030
+
+# Security
+JWT_SECRET="your-secure-jwt-secret-key"
+
+# CORS
+CORS_ORIGIN="http://localhost:3000"
+```
+
+### 4. Set Up the Database
+
+```bash
+# Run migrations
+npx prisma migrate dev
+
+# Generate Prisma Client
+npx prisma generate
+```
+
+### 5. Seed Sample Data (Optional)
+
+```bash
+npx ts-node -r tsconfig-paths/register src/seed-data.ts
+```
+
+### 6. Start the Development Server
+
+```bash
+npm run start:dev
+```
+
+The server will be running at `http://localhost:3030`.
+
+### 7. Build for Production
+
+```bash
+npm run build
+npm run start:prod
+```
+
+---
+
+## API Reference
+
+### 🔓 Public Routes
+
+| Method | Endpoint          | Description              |
+| :----- | :---------------- | :----------------------- |
+| `POST` | `/users/logUp`    | Register a new account   |
+| `POST` | `/users/loginIn`  | Sign in & receive JWT    |
+
+---
+
+### 👤 Authenticated User Routes
+
+| Method   | Endpoint               | Description                 |
+| :------- | :--------------------- | :-------------------------- |
+| `GET`    | `/users/search_Word`   | Search employees directory  |
+| `PATCH`  | `/users/updateMyProfile` | Update own profile        |
+| `DELETE` | `/users/deleteMyProfile` | Delete own account        |
+
+---
+
+### 👷 Employee Routes — `Role: EMPLOYEE`
+
+| Method | Endpoint                     | Description                          |
+| :----- | :--------------------------- | :----------------------------------- |
+| `GET`  | `/employee/profile`          | Get own employee profile             |
+| `POST` | `/employee/set-manager`      | Link to a manager                    |
+| `PATCH`| `/employee/update-profile`   | Update employee profile details      |
+| `GET`  | `/employee/today-status`     | Get today's attendance status        |
+| `GET`  | `/employee/weekly-report`    | Get personal weekly report           |
+| `GET`  | `/employee/monthly-report`   | Get personal monthly report          |
+| `GET`  | `/employee/my-dashboard`     | Get personal dashboard data          |
+| `GET`  | `/employee/discipline-rate`  | Get own discipline rate              |
+| `POST` | `/attendance/check-in`       | Clock in                             |
+| `POST` | `/attendance/check-out`      | Clock out                            |
+| `POST` | `/attendance/submit-excuse`  | Submit an excuse for late/early      |
+
+---
+
+### 👑 Manager Routes — `Role: SUPER_ADMIN`
+
+| Method   | Endpoint                                  | Description                              |
+| :------- | :---------------------------------------- | :--------------------------------------- |
+| `GET`    | `/managing/dashboard`                     | Get attendance dashboard overview        |
+| `GET`    | `/managing/dashboard-registry`            | Unified registry (daily/weekly/monthly)  |
+| `POST`   | `/managing/add-employee/:id`             | Add employee to management               |
+| `DELETE` | `/managing/delete-employee/:id`          | Remove employee from management          |
+| `GET`    | `/managing/my-employees`                 | List all managed employees               |
+| `POST`   | `/managing/make-a-shift`                 | Create a new shift                       |
+| `GET`    | `/managing/shifts`                       | List all shifts                          |
+| `PATCH`  | `/managing/shifts/:id`                   | Update a shift                           |
+| `DELETE` | `/managing/shifts/:id`                   | Delete a shift                           |
+| `PATCH`  | `/managing/audit-employee`               | Audit/update employee record             |
+| `GET`    | `/managing/employee-weekly-report/:id`   | Get employee's weekly report             |
+| `GET`    | `/managing/employee-monthly-report/:id`  | Get employee's monthly report            |
+| `GET`    | `/managing/discipline-rate/:employeeProfileId` | Get employee's discipline rate     |
+| `GET`    | `/managing/pending-excuses`              | List all pending excuses                 |
+| `POST`   | `/managing/approve-excuse/:id`           | Approve an excuse                        |
+| `POST`   | `/managing/auto-checkout`                | Trigger automatic checkout               |
+| `POST`   | `/managing/salary-deduction/:employeeId` | Calculate salary deduction               |
+
+---
+
+### 🏢 Department Routes — `Role: SUPER_ADMIN`
+
+| Method   | Endpoint                | Description                   |
+| :------- | :---------------------- | :---------------------------- |
+| `GET`    | `/department`           | List all departments          |
+| `GET`    | `/department/:id`       | Get department by ID          |
+| `POST`   | `/department`           | Create a new department       |
+| `PATCH`  | `/department/:id`       | Update a department           |
+| `DELETE` | `/department/:id`       | Delete a department           |
+| `GET`    | `/department/list/names`| Get department names (dropdown)|
+
+---
+
+## Database Schema
+
+The database consists of six core models with well-defined relationships:
+
+```mermaid
+erDiagram
+    User ||--o| AdminProfile : "has"
+    User ||--o| EmployeeProfile : "has"
+    AdminProfile ||--o{ Department : "manages"
+    AdminProfile ||--o{ EmployeeProfile : "supervises"
+    Department ||--o{ EmployeeProfile : "contains"
+    Department ||--o{ Shift : "has"
+    Shift ||--o{ EmployeeProfile : "assigned"
+    EmployeeProfile ||--o{ Attendance : "records"
+    Attendance ||--o{ Excuse : "has"
+
+    User {
+        uuid id PK
+        string email UK
+        string passwordHash
+        string fullName
+        string jobTitle
+        enum role
+    }
+
+    EmployeeProfile {
+        uuid id PK
+        uuid userId FK
+        uuid departmentId FK
+        uuid shiftId FK
+        uuid managerId FK
+        boolean isWorking
+        int salary
+    }
+
+    Attendance {
+        uuid id PK
+        date date
+        datetime checkIn
+        datetime checkOut
+        enum status
+        int delayMinutes
+        int earlyLeaveMinutes
+        int totalWorkedMinutes
+        int salaryDeduction
+    }
+
+    Excuse {
+        uuid id PK
+        string reason
+        enum type
+        boolean isApproved
+        uuid attendanceId FK
+    }
+```
+
+### Enums
+
+| Enum               | Values                                          |
+| :------------------ | :----------------------------------------------- |
+| `Role`             | `SUPER_ADMIN`, `EMPLOYEE`                        |
+| `AttendanceStatus` | `ON_TIME`, `LATE`, `ABSENT`, `EXCUSED`, `ESCAPY` |
+| `ExcuseType`       | `IN` (late arrival), `OUT` (early departure)     |
+
+---
+
+## Available Scripts
+
+| Script              | Description                              |
+| :------------------ | :--------------------------------------- |
+| `npm run start:dev` | Start dev server with hot-reload         |
+| `npm run start`     | Start server (production mode)           |
+| `npm run start:prod`| Start compiled production build          |
+| `npm run build`     | Compile TypeScript to JavaScript         |
+| `npm run lint`      | Run ESLint with auto-fix                 |
+| `npm run format`    | Format code with Prettier                |
+| `npm run test`      | Run unit tests                           |
+| `npm run test:e2e`  | Run end-to-end tests                     |
+| `npm run test:cov`  | Run tests with coverage report           |
+
+---
+
+## Project Structure
+
+```
+nestjs-prisma/
+├── prisma/
+│   ├── schema.prisma          # Database schema definition
+│   └── migrations/            # Migration history
+├── src/
+│   ├── core/                  # Auth, guards, decorators, filters
+│   ├── users/                 # User module (registration, login)
+│   ├── employee/              # Employee module (profile, reports)
+│   ├── managing/              # Manager module (dashboard, admin)
+│   ├── attendance/            # Attendance module (check-in/out)
+│   ├── department/            # Department module (CRUD)
+│   ├── utilities/             # Shared services & helpers
+│   ├── prisma/                # Prisma database service
+│   ├── seed-data.ts           # Database seed script
+│   ├── app.module.ts          # Root application module
+│   └── main.ts                # Bootstrap entry point
+├── test/                      # E2E test suite
+├── .env                       # Environment variables (not committed)
+├── nest-cli.json              # NestJS CLI configuration
+├── tsconfig.json              # TypeScript configuration
+└── package.json               # Dependencies & scripts
+```
+
+---
+
+## Security Best Practices
+
+| Practice                     | Implementation                                          |
+| :--------------------------- | :------------------------------------------------------ |
+| Password Storage             | bcrypt hashing with 10 salt rounds                      |
+| Token Authentication         | JWT with expiration, containing `userId` and `role`     |
+| Input Validation             | Global `ValidationPipe` with whitelist enforcement      |
+| Role-Based Access            | Custom guards checking `SUPER_ADMIN` / `EMPLOYEE` roles |
+| CORS Protection              | Configurable origin via `CORS_ORIGIN` env variable      |
+| Data Integrity               | Foreign key constraints + programmatic deletion guards  |
+| Error Handling               | Global exception filter for consistent error responses  |
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  Built with ❤️ using <a href="https://nestjs.com/">NestJS</a>
+</p>
