@@ -2,11 +2,9 @@ import { Controller, Get, Query, Post, Body, Patch, Param, Delete } from '@nestj
 import { ManagingService } from './managing.service';
 import { UtilitiesService } from '../utilities/utilities.service';
 import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
-import { Auth } from '../core/decorators/golebl.auth.decorator';
+import { Auth } from '../core/decorators/global.auth.decorator';
 import { Role } from '@prisma/client';
-import { shift } from './dto/shfit.dto';
-import { UpdateShiftDto } from './dto/update-shift.dto';
-import { CurrentUser } from '../core/decorators/currntUser.decorator';
+import { CurrentUser } from '../core/decorators/current-user.decorator';
 import { format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { StatisticsHelperService } from '../utilities/statistics-helper.service';
@@ -42,50 +40,55 @@ export class ManagingController {
   // إضافة عامل لدى المدير 
   // add worker to manager
   @Post('add-employee/:id')
-  addworker(@Param('id') employeeUserId: string, @CurrentUser('userId') managerUserId: string) {
-    return this.managingService.addworker(employeeUserId, managerUserId);
+  addworker(
+    @CurrentUser('userId') managerUserId: string,
+    @Body() dto: { 
+      departmentId: string; 
+      shiftId: string;
+      name?: string; 
+      email: string; 
+      phone?: string; 
+      jobTitle?: string; 
+      salary?: number 
+    },
+    @Param('id') employeeUserId?: string,
+  ) {
+    return this.managingService.addworker( managerUserId, dto ,employeeUserId);
   }
 
-  // جلب جميع العمال لدى المدير 
-  // get all employees of manager 
+  // إضافة عامل لدى المدير 
+  // add worker to manager
+  @Post('trune-to-department/:id')
+  truneToDepartmentEmployee(
+    @Param('id') employeeUserId: string,
+    @CurrentUser('userId') managerUserId: string,
+    @Body() { departmentId, shiftId }: { departmentId: string; shiftId: string; }
+  ) {
+    return this.managingService.truneToDepartmentEmployee( managerUserId, employeeUserId , departmentId, shiftId);
+  }
+
+  // جلب جميع العمال لدى المدير مع حساب الانضباط والتقييم الشامل
+  // GET /managing/my-employees?page=1&limit=10&mode=MONTHLY&dateAnchor=2026-06-01&departmentId=...
   @Get('my-employees')
   getMyWorkers(
     @CurrentUser('userId') managerUserId: string,
     @Query('page') page?: string,
-    @Query('limit') limit?: string
+    @Query('limit') limit?: string,
+    @Query('mode') mode?: Modes,
+    @Query('dateAnchor') dateAnchor?: string,
+    @Query('departmentId') departmentId?: string,
   ) {
     const pageNumber = page ? parseInt(page, 10) : 1;
     const limitNumber = limit ? parseInt(limit, 10) : 10;
-    return this.managingService.getMyWorkers(managerUserId, pageNumber, limitNumber);
+    return this.managingService.getMyWorkers(
+      managerUserId,
+      pageNumber,
+      limitNumber,
+      mode || Modes.MONTHLY,
+      dateAnchor,
+      departmentId,
+    );
   }
-
-  @Post('make-a-shift')
-  makeAShift(@Body() shift: shift) {
-    return this.managingService.newShfit(shift);
-  }
-
-  // GET /managing/shifts
-  @Get('shifts')
-  getShifts(
-    @CurrentUser('userId') userId: string,
-    @CurrentUser('role') role: Role,
-   
-) {
-    return this.managingService.getShifts(userId , role );
-  }
-
-  // PATCH /managing/shifts/:id
-  @Patch('shifts/:id')
-  updateShift(@Param('id') shiftId: string, @Body() dto: UpdateShiftDto) {
-    return this.managingService.updateShift(shiftId, dto);
-  }
-
-  // DELETE /managing/shifts/:id
-  @Delete('shifts/:id')
-  deleteShift(@Param('id') shiftId: string) {
-    return this.managingService.deleteShift(shiftId);
-  }
-
 
   // تدقيق العامل لدى المدير 
   // audit employee to manager  
@@ -98,11 +101,11 @@ export class ManagingController {
     return this.managingService.handleAndAuditMyEmployees(email, employeeId, audit);
   }
 
-  @Delete('delete-employee/:id')
-  remove(@Param('id') id: string) {
-    return this.managingService.removeEmployee(id);
+  @Delete('fired-employee/:id')
+  fired(@Param('id') id: string) {
+    return this.managingService.firedEmployee(id);
   }
-
+  
   // لوحة التحكم الموحدة وسجلات حضور الموظفين للمدير
   // GET /managing/dashboard-registry?mode=ALL&dateAnchor=2026-05-30&page=1&limit=10&startDate=2026-05-01&endDate=2026-05-31
   @Get('dashboard-registry')
@@ -134,22 +137,48 @@ export class ManagingController {
     );
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // Period Report — مسار واحد للمدير (employee-bounded-report/:id)
+  // تم حذف GET /managing/period-report المكرر
+  // ═══════════════════════════════════════════════════════════════
+
   @Get('employee-bounded-report/:id')
   getEmployeeBoundedReport(
-    @Param('id') employeeUserId: string,
-    @Query('startDate') startDate: string ,
-    @Query('mode') mode: Modes = Modes.WEEKLY
-   ) {
-    return this.utility.fetchBoundedPeriodReport(employeeUserId, startDate , mode);
+    @CurrentUser('userId') userId: string,
+    @Param('id') employeeId: string,
+    @Query('startDate') startDate?: string,
+    @Query('dateAnchor') dateAnchor?: string,
+    @Query('mode') mode: Modes = Modes.WEEKLY,
+  ) {
+    const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+    const anchor = startDate || dateAnchor || defaultDate;
+    return this.utility.fetchPeriodReport(userId, anchor, mode, employeeId);
   }
+
+
+
 
   // GET /managing/discipline-rate/:employeeProfileId
   @Get('discipline-rate/:employeeProfileId')
   getDisciplineRate(
     @Param('employeeProfileId') id: string,
+    @Query('mode') mode?: Modes,
+    @Query('dateAnchor') dateAnchor?: string,
     @Query('days') days?: string,
   ) {
-    return this.statsHelper.computeDisciplineRate(id, days ? parseInt(days, 10) : 30);
+    const modeOrDays = days ? parseInt(days, 10) : (mode || Modes.MONTHLY);
+    return this.statsHelper.computeDisciplineRate(id, modeOrDays, dateAnchor);
+  }
+
+  // GET /managing/organization-discipline
+  @Get('organization-discipline')
+  getOrganizationDiscipline(
+    @CurrentUser('userId') managerUserId: string,
+    @Query('mode') mode?: Modes,
+    @Query('dateAnchor') dateAnchor?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    return this.statsHelper.computeOrganizationDiscipline(managerUserId, mode || Modes.MONTHLY, dateAnchor, departmentId);
   }
 
   // GET /managing/pending-excuses

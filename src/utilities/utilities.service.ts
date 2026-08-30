@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnauthorizedException ,ConflictException  } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { PrismaService } from './../prisma/prisma.service';
 import {
   parseISO,
@@ -17,15 +17,19 @@ import {
 } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { randomUUID } from 'crypto';
-import { AttendanceStatus, ExcuseType } from '@prisma/client';
+import { AttendanceStatus, ExcuseType, Role } from '@prisma/client';
 import { StatisticsHelperService } from './statistics-helper.service';
-import { CalculatePeriodService } from './caculaePeriod.service';
+import { CalculatePeriodService } from './calculate-period.service';
 import {
   OptimizedDashboardResponse,
   RegistryEntry,
   DailyBreakdownEntry,
   Modes,
 } from './types/dashboard-registry.types';
+import { ResponseHelper } from '../core/helpers/response.helper';
+import { ManagerProfileNotFoundException } from '../core/domain-exceptions/department.exceptions';
+import { EmployeeProfileNotFoundException } from '../core/domain-exceptions/employee.exceptions';
+import { AttendanceRecordsNotFoundException } from '../core/domain-exceptions/utility.exceptions';
 
 const TZ = 'Asia/Riyadh';
 
@@ -58,7 +62,7 @@ export class UtilitiesService {
     });
 
     if (!admin) {
-      throw new NotFoundException('لم يتم العثور على حساب المدير');
+      throw new ManagerProfileNotFoundException();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -244,6 +248,7 @@ export class UtilitiesService {
         avatar: emp.user.imageProfile || '',
         jobTitle: emp.user.jobTitle   || 'موظف',
         rate:rate,
+        isWorking:emp.isWorking,
         disciplineRating:label,
         summary: {
           ...summary,
@@ -332,8 +337,8 @@ export class UtilitiesService {
   // التقارير  الأسبوعية والشهرية للموظفين 
   // ─────────────────────────────────────────────────────────────
 
-  async fetchBoundedPeriodReport(userId: string, startDate: string , mode: Modes, employeeId?: string ) {
-    const {periodLabel, startDate:start ,endDate:end} = this.calculatePeriod.calculateMonthlyBoundedPeriod( mode , startDate )
+  async fetchPeriodReport(userId: string, startDate: string , mode: Modes, employeeId?: string ) {
+    const { periodLabel , startDate:start , endDate:end } = this.calculatePeriod.calculateMonthlyBoundedPeriod( mode , startDate )
 
     let targetProfileId: string;
 
@@ -347,7 +352,7 @@ export class UtilitiesService {
         }
       });
       if (!empProfile) {
-        throw new NotFoundException('لم يتم العثور على ملف الموظف المحدد');
+        throw new EmployeeProfileNotFoundException();
       }
       targetProfileId = empProfile.id;
     } else {
@@ -357,12 +362,12 @@ export class UtilitiesService {
       });
 
       if (!user || !user.employeeProfile) {
-        throw new NotFoundException('لم يتم العثور على ملف الموظف');
+        throw new EmployeeProfileNotFoundException();
       }
       targetProfileId = user.employeeProfile.id;
     }
 
-    const attendances = mode===Modes.DAILY ?
+    const attendances = mode === Modes.DAILY ?
     await this.prisma.attendance.findFirst({
       where: {
         employeeProfileId: targetProfileId,
@@ -381,7 +386,7 @@ export class UtilitiesService {
       :
       await this.prisma.attendance.findMany({
       where: {
-        employeeProfileId: targetProfileId,
+        employeeProfileId : targetProfileId,
         date: { gte: start, lt: end },
       },
         include:{
@@ -397,16 +402,19 @@ export class UtilitiesService {
     });
   
     if(mode === Modes.DAILY && attendances ){
-    return  attendances
-    }else if(mode !== Modes.DAILY && Array.isArray(attendances) ) {
-    const { summary: { summary, days } } = this.statsHelper.computePeriodSummary(attendances);
+      return attendances;
+    } else if(mode !== Modes.DAILY && Array.isArray(attendances)) {
+      const { summary, days, label, rate } = this.statsHelper.summarizeAttendances(attendances);
 
-    return {
-      periodLabel,
-      summary: summary,
-      records: days,
-    };}else{
-      throw new ConflictException(`لم يتم العثور على سجلات الحضور تاكد من صحة البيانات المرسالة: التاريخ-${startDate} , الفئة-${mode} `);
+      return {
+        periodLabel,
+        rate,
+        label,
+        summary,
+        records: days,
+      };
+    } else {
+      throw new AttendanceRecordsNotFoundException(startDate, mode);
     }
   }
  
@@ -581,42 +589,75 @@ export class UtilitiesService {
     page: number = 1,
     limit: number = 10,
     roleFilter?: string,
-    includeDiscipline: boolean = false,
+    includeDiscipline: boolean = true,
   ) {
     try {
       const skip = (page - 1) * limit;
-      const where: any = {
-        OR: [
-          { fullName: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search, mode: 'insensitive' } },
-        ],
-      };
+      const where: any = {};
 
-      if (roleFilter && roleFilter !== 'all') {
+      if (search && search.trim() !== '') {
+        where.OR = [
+          { fullName: { contains: search } },
+          { email: { contains: search} },
+          { phone: { contains: search } },
+        ];
+      }
+
+      if (roleFilter && roleFilter !== 'all' && roleFilter !== 'ALL') {
         where.role = roleFilter;
       }
 
-      const [results, total] = await Promise.all([
+      const [results , total] = await Promise.all([
         this.prisma.user.findMany({
           where,
-          skip,
-          take: limit,
           include: {
-            adminProfile: true,
-            employeeProfile: { include: { department: true, shift: true } },
+            adminProfile: {
+              include: {
+                managedDepartments: {
+                  include: { shift: true },
+                },
+              },
+            },
+            employeeProfile: {
+              include: {
+                manager:true,
+                department: true,
+                shift: true,
+              },
+            },
           },
+          orderBy: { createdAt: 'desc' },
         }),
         this.prisma.user.count({ where }),
       ]);
 
-      let enrichedResults: any[] = results;
+      let enrichedResults :any[]= results;
+      
       if (includeDiscipline) {
         enrichedResults = await Promise.all(
           results.map(async (u) => {
-            if (u.employeeProfile) {
+            
+            if (u.employeeProfile && u.role === "EMPLOYEE") {
               const enriched = await this.statsHelper.enrichEmployeeData(u.employeeProfile);
-              return { ...u, employeeProfile: enriched };
+              return { ...u, employeeProfile: {
+                ...u.employeeProfile!,
+                managerId:u.employeeProfile.manager?.userId,
+               disciplineRate:{
+                  rate:enriched.organizationRate,
+                  label:enriched.organizationLabel,
+                  periodCountDiscipline:enriched.periodCountDiscipline,
+                }
+              } };
+            }else if(u.adminProfile ){
+              const enriched = await this.statsHelper.computeOrganizationDiscipline(u.id);
+              return { ...u, adminProfile: {
+                ...u.adminProfile!,
+                organizationDiscipline:{
+                  rate:enriched.organizationRate,
+                  label:enriched.organizationLabel,
+                  periodCountDiscipline:enriched.periodCountDiscipline,
+                }
+              } };
             }
             return u;
           })
