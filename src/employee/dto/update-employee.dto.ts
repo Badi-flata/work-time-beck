@@ -7,6 +7,10 @@ export class UpdateEmployeeDto {
 
     @IsString()
     @IsNotEmpty()
+    imageProfile?: string;
+
+    @IsString()
+    @IsNotEmpty()
     fullName :string
 
     @IsString()

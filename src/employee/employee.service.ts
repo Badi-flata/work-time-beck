@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { EmployeeDto } from './dto/employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { StatisticsHelperService } from '../utilities/statistics-helper.service';
 import { startOfDay, addDays } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
+import { Modes } from '../utilities/types/dashboard-registry.types';
+import { EmployeeProfileNotFoundException, RecordAttendancesEmployeeUndefindExcepion } from '../core/domain-exceptions/employee.exceptions';
+import { ManagerProfileNotFoundException } from '../core/domain-exceptions/department.exceptions';
+import { ResponseHelper } from '../core/helpers/response.helper';
+import { CalculatePeriodService } from 'src/utilities/calculate-period.service';
+import { Role } from '@prisma/client';
 
 const TZ = 'Asia/Riyadh';
 
@@ -13,105 +19,102 @@ export class EmployeeService {
   constructor(
     private prisma: PrismaService,
     private statsHelper: StatisticsHelperService,
+    private calculatePeriod: CalculatePeriodService,
   ) {}
-
-  async getMyProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        employeeProfile: {
-          include: {
-            department: true,
-            shift: true,
-            manager: {
-              include: {
-                user: {
-                  select: {
-                    fullName: true,
-                    email: true,
-                    phone: true
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    });
-    if (!user) throw new NotFoundException('المستخدم غير موجود');
-
-    if (user.employeeProfile) {
-      const enriched = await this.statsHelper.enrichEmployeeData(
-        user.employeeProfile,
-        { includeDiscipline: true, disciplineDays: 30 }
-      );
-      return { ...user, employeeProfile: enriched };
-    }
-    return user;
-  }
 
   async addOrChangeManager(managerId: string, MyId: string) {
     const manager = await this.prisma.adminProfile.findUnique({
       where: { id: managerId }
     });
-    if (!manager) throw new NotFoundException('المدير غير موجود');
+    if (!manager) throw new ManagerProfileNotFoundException();
 
     await this.prisma.employeeProfile.update({
       where: { userId: MyId },
       data: { managerId: managerId }
     });
 
-    return { message: 'تم تعيين المدير بنجاح' };
+    return ResponseHelper.success(null, 'تم تعيين المدير بنجاح');
   }
 
-  async getMyDashboard(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { employeeProfile: true }
+  async getMyDashboard(userId: string,mode:Modes,dateAnchor:string ,employeeId?:string) {
+
+    const id = employeeId || userId
+    const user = await this.prisma.employeeProfile.findFirst({
+      where: {OR:  [ {userId:id} , {id:id}   ] },
+      include: { 
+        user: true, 
+        shift:{select:{name:true}},
+        department:{select:{name:true}} 
+        , manager:{
+          select:{
+            user:{
+              select:{
+                fullName:true
+              }
+            }
+          }
+        }
+      }
     });
-    if (!user || !user.employeeProfile) {
-      throw new NotFoundException('لم يتم العثور على ملف الموظف');
+    if (!user) {
+      throw new EmployeeProfileNotFoundException();
     }
 
-    const start = startOfDay(addDays(toZonedTime(Date.now(), TZ), -7));
+    
 
+    const { periodLabel , startDate:start , endDate:end } = this.calculatePeriod.calculateMonthlyBoundedPeriod( mode , dateAnchor )
+ 
     const attendances = await this.prisma.attendance.findMany({
       where: {
-        employeeProfileId: user.employeeProfile.id,
-        date: { gte: start }
+        employeeProfileId:user.id,
+        date: { gte: start , lt:end }
       },
-      orderBy: { date: 'asc' }
+      orderBy: { date: 'asc' } 
     });
-
-    const discipline = await this.statsHelper.computeDisciplineRate(user.employeeProfile.id, 30);
-    const {summary:{summary ,days}} = this.statsHelper.computePeriodSummary(attendances);
-
-    return {
+     
+    if(!attendances ) new RecordAttendancesEmployeeUndefindExcepion();
+   
+    const  { summary, days ,rate,label  } =  this.statsHelper.summarizeAttendances(attendances);
+    // const discipline = await this.statsHelper.computeDisciplineRate(user.id, mode,dateAnchor);
+     
+    const data = {
+      periodLabel:periodLabel,
+      messageSuccessd:'تم جلب لوحة معلومات الموظف بنجاح',
       profile: {
-        fullName: user.fullName,
-        jobTitle: user.jobTitle,
-        phone: user.phone,
-        email: user.email,
+        imageProfile:user.user.imageProfile,
+        fullName: user.user.fullName,
+        jobTitle: user.user.jobTitle,
+        phone: user.user.phone,
+        email: user.user.email,
+        salary:user.salary,
+        managerName: user.manager?.user?.fullName || 'لستة مدرج لدئ مدير حالياً ',
+        departmentName: user.department?.name || ' لستةمدرج لدى قسم حالياً ',
+        shift: user.shift?.name || 'لستةمدرج لدى وردية حالياً ',
       },
       disciplineRate: {
-        rate: discipline.rate,
-        label: discipline.label,
-      },
-      weeklySummary: summary,
-      weeklyLog: days,
+        rate,
+        label,
+        periodCountDiscipline:periodLabel,
+      }  ,
+      summary: summary,
+      daysLog: days,
     };
+
+    return ResponseHelper.success(data, 'تم جلب لوحة معلومات الموظف بنجاح');
   }
 
-  async getMyDisciplineRate(userId: string, days: number) {
+  async getMyDisciplineRate(userId: string, mode?: Modes, dateAnchor?: string, days?: number) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { employeeProfile: true }
     });
     if (!user || !user.employeeProfile) {
-      throw new NotFoundException('لم يتم العثور على ملف الموظف');
+      throw new EmployeeProfileNotFoundException();
     }
 
-    return this.statsHelper.computeDisciplineRate(user.employeeProfile.id, days);
+    const modeOrDays = days !== undefined ? days : (mode || Modes.MONTHLY);
+    const result = await this.statsHelper.computeDisciplineRate(user.employeeProfile.id, modeOrDays, dateAnchor);
+    return ResponseHelper.success(result, 'تم جلب معدل الانضباط بنجاح');
   }
 
   async update(MyId: string, updateEmployeeDto: UpdateEmployeeDto) {
@@ -124,6 +127,6 @@ export class EmployeeService {
         ...(updateEmployeeDto.jobTitle !== undefined && { jobTitle: updateEmployeeDto.jobTitle }),
       }
     });
-    return updatedUser;
+    return ResponseHelper.success(updatedUser, 'تم تحديث الملف الشخصي بنجاح');
   }
 }
