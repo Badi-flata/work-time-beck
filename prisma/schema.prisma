@@ -85,11 +85,11 @@ model EmployeeProfile {
 
 
   // علاقات العمل الأساسية
-  departmentId String
-  department   Department   @relation(fields: [departmentId], references: [id])
+  departmentId String?
+  department   Department?   @relation(fields: [departmentId], references: [id])
   
-  shiftId      String
-  shift        Shift        @relation(fields: [shiftId], references: [id])
+  shiftId      String?
+  shift        Shift?        @relation(fields: [shiftId], references: [id])
 
   // علاقة المدير المباشر: ربط الموظف بالمدير المسؤول عنه
   managerId    String?
