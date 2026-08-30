@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Attendance" ALTER COLUMN "shiftEnd" DROP NOT NULL,
+ALTER COLUMN "shiftName" DROP NOT NULL,
+ALTER COLUMN "shiftStart" DROP NOT NULL;
