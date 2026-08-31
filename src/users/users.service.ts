@@ -9,7 +9,14 @@ import { randomUUID } from 'crypto';
 import * as bcrypt    from 'bcrypt';
 import { ExceptionsHandler } from '@nestjs/core/exceptions/exceptions-handler';
 import { UtilitiesService } from '../utilities/utilities.service';
-
+import { StatisticsHelperService } from 'src/utilities/statistics-helper.service';
+import { InvalidCredentialsException, InsufficientPermissionsException } from '../core/domain-exceptions/auth.exceptions';
+import { DepartmentNotFoundException } from '../core/domain-exceptions/department.exceptions';
+import { ShiftNotFoundException } from '../core/domain-exceptions/shift.exceptions';
+import { NoFileProvidedException } from '../core/domain-exceptions/upload.exceptions';
+import { ResponseHelper } from '../core/helpers/response.helper';
+import { Modes } from 'src/utilities/types/dashboard-registry.types';
+import { UploadedFilePayload } from '../core/interfaces/global-response.interface';
 
 @Injectable()
 export class UsersService {
@@ -17,13 +24,14 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private jwt: AuthService,
+    private statsHelper: StatisticsHelperService,
     private utilities: UtilitiesService
   ) { }
  
   // أنشاء مدير 
   async createManager(Dto: CreateUserDto) {
     if(Dto.role !== Role.SUPER_ADMIN){
-      throw new ForbiddenException('ليس لديك الصلاحية لإنشاء حساب مدير.');
+      throw new InsufficientPermissionsException();
     }
     const fullName = Dto.fullName || 'User';
     const passwordHash = await bcrypt.hash(Dto.passwordHash || '', 10);
@@ -90,10 +98,10 @@ export class UsersService {
         role:Dto.role,
         employeeProfile:{
           create:{
-            id:randomUUID(),
+            id:Id,
             departmentId:depId.id,
             shiftId:depId.shift[0]?.id,
-            managerId:depId.managerId
+            managerId:null
           }
         }
       }
@@ -121,12 +129,12 @@ export class UsersService {
 
     const userProfile = user?.role === "EMPLOYEE" ? user?.employeeProfile: user?.adminProfile 
    
-    if(!user) throw new UnauthorizedException('البريد الالكتروني أو كلمة المرور غير صحيحة.');
+    if(!user) throw new InvalidCredentialsException();
       
     // التحقق من كلمة المرور 
     const isValid = await bcrypt.compare(passwordHash , user.passwordHash );
 
-    if(!isValid) throw new UnauthorizedException('البريد الالكتروني أو كلمة المرور غير صحيحة.');
+    if(!isValid) throw new InvalidCredentialsException();
    
     // توليد الـ Access Token 
     const tokenResult = await this.jwt.generateTokenPair( user.fullName , user.id , user.role);
@@ -138,13 +146,106 @@ export class UsersService {
     };
   }
   
+async getMyProfile(userId: string) {
+    const user =   await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        imageProfile:true,
+        jobTitle:true,
+         fullName:true,
+         phone:true,
+         email:true,
+         role:true,
+         createdAt:true,
+         employeeProfile: {
+          select: {
+            id:true,
+            salary:true,
+            isWorking:true,
+            department: {
+              select:{
+                name:true,
+              }
+            },
+            shift: {
+              select:{
+                name:true,
+              }
+            },
+            manager: {
+              include: {
+                user: {
+                  select: {
+                    fullName: true,
+                    email: true,
+                    phone: true
+                  }
+                }
+              }
+            }
+          }
+        }}
+      });
 
+    if (!user) throw new NotFoundException('المستخدم غير موجود');
+
+ 
+      const statis = user.employeeProfile ? await this.statsHelper
+      .computeDisciplineRate(user.employeeProfile.id , Modes.ALL): null;
+      return { user,  mate:statis ,messageSuccessd:"تم جلب بيانات الموظف بنجاح" };
+  }
+
+  async getMyManager(userId: string) {
+    const user =   await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        imageProfile:true,
+        jobTitle:true,
+         fullName:true,
+         phone:true,
+         email:true,
+         role:true,
+         createdAt:true,
+         adminProfile: {
+          select: {
+            managedDepartments: {
+              select:{
+                name:true,
+                shift: {
+              select:{
+                name:true,
+              }
+            }
+              }
+            },
+            subordinates: {
+              select:{
+                user:{
+                select: {
+                  id:true,
+                fullName: true,
+                email: true,
+                phone: true
+              }}}
+            }
+          }
+        }}
+      });
+
+    if (!user) throw new NotFoundException('المستخدم غير موجود');
+
+    const OrginzationLabel= await this.statsHelper.computeOrganizationDiscipline(userId,Modes.ALL)
+      return {
+        user ,
+       mate: OrginzationLabel,
+        messageSuccessd:"تم جلب بيانات المدير بنجاح"
+        };
+  }
 
 
   async update(userId: string, Dto: UpdateUserDto) {
     const data: any = {};
     if (Dto.fullName) data.fullName = Dto.fullName;
-
     if (Dto.email) data.email = Dto.email;
     if (Dto.phone) data.phone = Dto.phone;
     if (Dto.jobTitle) data.jobTitle = Dto.jobTitle;
@@ -155,44 +256,77 @@ export class UsersService {
       data,
       
     });
-   // update departement
-    if(Dto.departmentName){
 
-      const department = await this.prisma.department.findUnique({
-        where: { name: Dto.departmentName },
-      });
-
-      if (!department) {
-        throw new NotFoundException(`القسم المحدد (${Dto.departmentName}) غير موجود في النظام.`);
-      }
-
-      await this.prisma.employeeProfile.update({
-        where: { userId: userId },
-        data: { departmentId: department.id },
-      });
-    }
-    
-   // update shfit
-    if(Dto.shiftName){
-
-      const shift = await this.prisma.shift.findFirst({
-        where: { name: Dto.shiftName },
-      });
-
-      if (!shift) {
-        throw new NotFoundException(`القسم المحدد (${Dto.shiftName}) غير موجود في النظام.`);
-      }
-
-      await this.prisma.employeeProfile.update({
-        where: { userId: userId },
-        data: { shiftId: shift.id },
-      });
-    }
 
 
     return {
-      ...updatedUser,
+      user: updatedUser,
+      messageSuccessd: `تم تحديث بيانات المستخدم "${updatedUser.fullName}" بنجاح`,
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 🖼️ PROFILE AVATAR MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * رفع وحفظ الصورة الشخصية للمستخدم وتحديث قاعدة البيانات
+   */
+  async uploadAvatar(userId: string, file: UploadedFilePayload) {
+    if (!file) {
+      throw new NoFileProvidedException();
+    }
+
+    const relativePath = `/uploads/avatars/${file.filename}`;
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { imageProfile: relativePath },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        jobTitle: true,
+        imageProfile: true,
+        role: true,
+      },
+    });
+
+    return ResponseHelper.success(
+      {
+        imageProfile: relativePath,
+        user: updatedUser,
+      },
+      'تم رفع وتحديث الصورة الشخصية بنجاح'
+    );
+  }
+
+  /**
+   * تحديث رابط الصورة الشخصية مباشرة
+   */
+  async updateAvatar(userId: string, imageProfile: string) {
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { imageProfile },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        jobTitle: true,
+        imageProfile: true,
+        role: true,
+      },
+    });
+
+    return ResponseHelper.success(
+      {
+        imageProfile,
+        user: updatedUser,
+      },
+      'تم تحديث الصورة الشخصية بنجاح'
+    );
   }
 
   async search(search: string, page = 1, limit = 10, role?: string, discipline = false) {

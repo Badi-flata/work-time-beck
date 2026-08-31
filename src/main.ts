@@ -1,23 +1,33 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // التأكد من وجود مجلد رفع الملفات
+  const uploadsDir = join(process.cwd(), 'uploads', 'avatars');
+  if (!existsSync(uploadsDir)) {
+    mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  // تقديم الملفات الثابتة (الصور المرفوعة) عبر الرابط /uploads/...
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   // تفعيل CORS للسماح للواجهة الأمامية بالاتصال
-  // CORS_ORIGIN يمكن أن يكون قائمة مفصولة بفاصلة لدعم بيئات متعددة
-  // مثال: CORS_ORIGIN="https://badi-flata.github.io,http://localhost:3000"
-  const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:3000';
+  const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:3030';
   const allowedOrigins = rawOrigins.split(',').map((o) => o.trim());
 
   app.enableCors({
     origin: (origin, callback) => {
-      // السماح بالطلبات بدون origin (مثل Postman أو curl أو TestSprite)
       if (!origin) return callback(null, true);
-      // السماح بطلبات TestSprite البعيدة إذا كان الأصل ينتهي بـ testsprite.com
       if (allowedOrigins.includes(origin) || origin.endsWith('testsprite.com')) {
         return callback(null, true);
       }
@@ -52,4 +62,3 @@ async function bootstrap() {
   await app.listen(process.env.PORT ?? 9000);
 }
 bootstrap();
-

@@ -20,6 +20,8 @@ import { fromFetch } from 'rxjs/fetch';
 import { AllExceptionsFilter } from 'src/core/filters/all-exceptions.filter';
 import { error } from 'console';
 import { networkInterfaces } from 'os';
+import { AlreadyCheckedInException, AlreadyCheckedOutException, CheckOutBeforeCheckInException, CheckInExpiredException, CheckOutExpiredException } from '../core/domain-exceptions/attendance.exceptions';
+import { ResponseHelper } from '../core/helpers/response.helper';
 
 const TZ = 'Asia/Riyadh';
 
@@ -114,7 +116,7 @@ export class AttendanceService {
          where: { employeeProfileId_date: { employeeProfileId: employee.id, date: startOfDay(shiftStart) } },
        });
        if (attendance) {
-         throw new ConflictException('تم تسجيل الحضور بالفعل');
+         throw new AlreadyCheckedInException();
        }
 
        const serverZoned = toZonedTime(new Date(), TZ);
@@ -156,6 +158,11 @@ export class AttendanceService {
          }
        }
 
+       const isWorking = await this.prisma.employeeProfile.update({
+        where: { id: employee.id },
+         data: { isWorking: true },
+       })
+
        const record = await this.prisma.attendance.create({
          data: {
            id: `${status}-${checkIn}-${shiftId}`,
@@ -184,14 +191,15 @@ export class AttendanceService {
          });
        }
 
-       return {
-         Message: `تم تسجيل الحضور  ${status === AttendanceStatus.LATE ? 'مع تأخير' : 'بنجاح في الموعد المحدد'}  `,
-         data: {
+       return ResponseHelper.success(
+         {
            ...record,
            managerName: fullName,
            departmentName: departmentName,
+           isWorking,
          },
-       };
+         `تم تسجيل الحضور  ${status === AttendanceStatus.LATE ? 'مع تأخير' : 'بنجاح في الموعد المحدد'}  `
+       );
      } catch (err: any) {
        console.log("التفاصيل:", err);
        if (err.status) {
@@ -213,7 +221,7 @@ export class AttendanceService {
         type: "EARLY_DEPARTURE" | "ABSENT",
         reason:string,
       } | null,
-    ): Promise<{Message:string , data:any|null}> {
+    ) {
       try {
         const employee = await this.prisma.employeeProfile.findUnique({
           where: { userId: employeeId },
@@ -237,11 +245,11 @@ export class AttendanceService {
           where: { id: attendId },
         });
         if (!attendance) {
-          throw new NotFoundException('لم يتم تسجيل الحضور لهذا اليوم');
+          throw new CheckOutBeforeCheckInException();
         }
  
         if (attendance.checkOut) {
-          throw new ConflictException('تم تسجيل الإنصراف بالفعل');
+          throw new AlreadyCheckedOutException();
         }
  
         const shift = await this.prisma.shift.findUnique({
@@ -268,7 +276,7 @@ export class AttendanceService {
         }
  
         if (!isAllowed) {
-          throw new ForbiddenException("لا يمكن تسجيل الانصراف في سجل حضور قديم");
+          throw new CheckOutExpiredException();
         }
  
         // Calculate shiftEnd Date object using attendance.date (shift start date)
@@ -306,6 +314,13 @@ export class AttendanceService {
             ]
           }
         });
+
+        if (Excused && !Excused.attendanceId) {
+          await this.prisma.excuse.update({
+            where: { id: Excused.id },
+            data: { attendanceId: attendId }
+          });
+        }
  
         let status = attendance.status;
         if (isEarly && !Excused && nowStr !== attendDateStr && !isCrossDay) {
@@ -324,7 +339,10 @@ export class AttendanceService {
         } else if (isEarly) {
           status = AttendanceStatus.ESCAPY;
         }
- 
+         const isWorking = await this.prisma.employeeProfile.update({
+        where: { id: employee.id },
+         data: { isWorking: false },
+       })
         const record = await this.prisma.attendance.update({
           where: { id: attendId },
           data: {
@@ -337,21 +355,16 @@ export class AttendanceService {
           include: { excuses: { select: { type: true, reason: true, isApproved: true } } },
         });
  
-        if (Excused && !Excused.attendanceId) {
-          await this.prisma.excuse.update({
-            where: { id: Excused.id },
-            data: { attendanceId: attendId }
-          });
-        }
  
-        return {
-          Message: `تم تسجيل الإنصراف بنجاح`,
-          data: {
+        return ResponseHelper.success(
+          {
             ...record,
             managerName: fullName,
             departmentName: departmentName,
+            isWorking
           },
-        };
+          'تم تسجيل الإنصراف بنجاح'
+        );
       } catch (err: any) {
         console.log("التفاصيل:", err);
         if (err.status) {
@@ -469,11 +482,10 @@ export class AttendanceService {
           } : null
         };
 
-        return {
+        return ResponseHelper.success(
           data,
-          message: `تم جلب البيانات الاولية لسجيل الحضور بنجاح, ${attendReport ? "مع سجل الحضور لليوم" : "مامن سجل حضور لليوم"}`,
-          status: 200
-        };
+          `تم جلب البيانات الاولية لسجيل الحضور بنجاح, ${attendReport ? "مع سجل الحضور لليوم" : "مامن سجل حضور لليوم"}`
+        );
       }
 
      // ─────────────────────────────────────────────────────────────
@@ -532,11 +544,10 @@ export class AttendanceService {
         type: dto.type,
         attendanceId: attendance.id,
         submittedById: user.id,
-        isApproved: true,
-          
+        isApproved: true, 
         }
       })
-    return {Message:"تم قبول العذر", data:excuse, status:200}
+      return ResponseHelper.success(excuse, "تم قبول العذر");
     }
 
     const excuse = await this.prisma.excuse.create({
@@ -551,6 +562,6 @@ export class AttendanceService {
 
     
 
-    return excuse;
+    return ResponseHelper.success(excuse, "تم قبول العذر");
   }
 } 

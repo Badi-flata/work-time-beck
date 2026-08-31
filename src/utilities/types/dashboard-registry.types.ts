@@ -86,6 +86,7 @@ export interface RegistryEntry {
   name: string;
   jobTitle: string;                 
   avatar: string; 
+  isWorking:boolean;
   rate: number;              
   disciplineRating: DisciplineRating;
   summary: EmployeeSummary;

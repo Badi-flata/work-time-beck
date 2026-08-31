@@ -1,13 +1,24 @@
-import { Injectable } from '@nestjs/common';
-import { ManagingDto } from './dto/managing.dto';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role } from '@prisma/client';
-import { randomUUID } from 'crypto';
-import { UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
-import { shift } from './dto/shfit.dto';
-import { UpdateShiftDto } from './dto/update-shift.dto';
 import { StatisticsHelperService } from '../utilities/statistics-helper.service';
+import {
+  ManagerProfileNotFoundException,
+  ExcuseNotFoundException,
+  EmployeeNotUnderManagerException,
+  AuditEmployeeFailedException,
+} from '../core/domain-exceptions/managing.exceptions';
+import {
+  EmployeeAlreadyAssignedException,
+  CannotAssignManagerAsEmployeeException,
+  EmployeeNotFoundException,
+  EmployeeAlreadyAssignedToYouException
+} from '../core/domain-exceptions/employee.exceptions';
+import { ResponseHelper } from '../core/helpers/response.helper';
+import { Modes } from '../utilities/types/dashboard-registry.types';
+import { WorkersListMeta } from '../core/interfaces/global-response.interface';
+import { DepartmentNotFoundException, ShiftNotFoundException } from 'src/core/domain-exceptions';
 
 @Injectable()
 export class ManagingService {
@@ -16,94 +27,205 @@ export class ManagingService {
     private statsHelper: StatisticsHelperService,
   ) { }
 
-  //  جلب جميع العمال  لدى المدير 
-  // get all workers for the manager
-  async getMyWorkers(userId: string, page: number = 1, limit: number = 10) {
+  /**
+   * جلب جميع العمال لدى المدير مع حساب معدل الانضباط والتقييم الشامل للمؤسسة/القسم
+   * يدعم التصفية حسب الوضع (أسبوعي/شهري/يومي/كلي) والقسم
+   */
+  async getMyWorkers(
+    userId: string,
+    page: number = 1,
+    limit: number = 10,
+    mode: Modes = Modes.MONTHLY,
+    dateAnchor?: string,
+    departmentId?: string,
+  ) {
     const manager = await this.prisma.adminProfile.findUnique({
       where: { userId }
     });
-    if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
+    if (!manager) throw new ManagerProfileNotFoundException();
+
+    const whereClause: any = { managerId: manager.userId };
+    if (departmentId) {
+      whereClause.departmentId = departmentId;
+    }
 
     const total = await this.prisma.employeeProfile.count({
-      where: { managerId: manager.userId }
+      where: whereClause,
     });
 
     const skip = (page - 1) * limit;
 
     const subordinates = await this.prisma.employeeProfile.findMany({
-      where: { managerId: manager.userId },
+      where: whereClause,
       skip,
       take: limit,
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        isWorking: true,
+        salary: true,
         user: {
           select: {
+            imageProfile: true,
             fullName: true,
             email: true,
             phone: true,
             jobTitle: true,
           }
         },
-        shift: true,
+        shift: {
+          select: {
+            name: true,
+            startTime: true,
+            endTime: true,
+            managerName: true,
+            departments: {
+              select: {
+                name: true,
+              }
+            }
+          }
+        },
       }
     });
 
+    // إثراء بيانات كل موظف بحساب الانضباط حسب الـ Mode المحدد
     const enrichedSubordinates = await Promise.all(
-      subordinates.map(sub =>
-        this.statsHelper.enrichEmployeeData(sub, { includeDiscipline: true })
-      )
+      subordinates.map(async (sub) => {
+        const discipline = await this.statsHelper.computeDisciplineRate(
+          sub.id,
+          mode,
+          dateAnchor,
+          true,
+        );
+        return {
+          ...sub,
+          disciplineRate: discipline,
+        };
+      })
+    );
+
+    // حساب التقييم الشامل لفريق العمل / القسم
+    const orgDiscipline = await this.statsHelper.computeOrganizationDiscipline(
+      userId,
+      mode,
+      dateAnchor,
+      departmentId,
     );
 
     const totalPages = Math.ceil(total / limit);
 
-    return {
-      data: enrichedSubordinates,
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages
-      }
+    const meta: WorkersListMeta = {
+      page,
+      limit,
+      totalItems: total,
+      totalPages,
+      organizationRate: orgDiscipline.organizationRate,
+      organizationLabel: orgDiscipline.organizationLabel,
+      periodCountDiscipline: orgDiscipline.periodCountDiscipline,
+      employeeRates:orgDiscipline.employeeRates
     };
+
+    return ResponseHelper.success(enrichedSubordinates, 'تم جلب قائمة الموظفين بنجاح', 200, meta);
   }
 
-
   // أضافة عامل لدى المدير 
-  // adding worker to the manager
-  async addworker(employeeUserId: string, managerUserId: string) {
-    // 1. جلب بيانات المدير
+  async addworker(
+    managerUserId: string,
+    dto: { 
+      departmentId: string; 
+      shiftId: string;
+      name?: string; 
+      email: string; 
+      phone?: string; 
+      jobTitle?: string; 
+      salary?: number 
+      },
+      employeeUserId?: string,
+      
+    ) {
+
+  
+    if( dto &&!dto?.email)throw new BadRequestException('البريد الإلكتروني مطلوب');
+      if(!dto) throw new BadRequestException('البيانات مطلوبة');
+      if(!managerUserId)throw new BadRequestException('معرف المدير مطلوب');
+
     const manager = await this.prisma.adminProfile.findUnique({
       where: { userId: managerUserId }
     });
-    if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
+    if (!manager) throw new ManagerProfileNotFoundException();
 
-    // 2. جلب بيانات العامل
-    const check = await this.prisma.user.findUnique({
-      where: { id: employeeUserId },
+    const check = await this.prisma.user.findFirst({
+      where: { OR:[{id: employeeUserId },
+                    {email:dto?.email}
+      ]},
       select: {
         id: true,
         role: true,
         employeeProfile: {
           select: {
-            id: true
+            id: true,
+            managerId: true
           }
         }
       }
     });
 
-    if (!check || check.role !== Role.EMPLOYEE || !check.employeeProfile) {
-      throw new UnauthorizedException("العامل غير موجود او ليس عامل");
-    }
-
-    // 3. أضافة العامل لدى المدير
-    return this.prisma.employeeProfile.update({
-      where: { id: check.employeeProfile.id },
-      data: { managerId: manager.userId }
+    const department = await this.prisma.department.findUnique({
+      where: { id: dto?.departmentId }
     });
+
+if( !department ||!dto?.departmentId){
+      throw new DepartmentNotFoundException();
+    }
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: dto?.shiftId }
+    });
+
+  if(!shift ||!dto?.shiftId){
+        throw new ShiftNotFoundException();
+      }
+
+    if (!check || check.role !== Role.EMPLOYEE || !check.employeeProfile) {
+      throw new CannotAssignManagerAsEmployeeException();
+    }
+    
+
+    if (check.employeeProfile.managerId && check.employeeProfile.managerId !== manager.userId) {
+      throw new EmployeeAlreadyAssignedException();
+    }
+    if (check.employeeProfile.managerId && check.employeeProfile.managerId === manager.userId) {
+      throw new EmployeeAlreadyAssignedToYouException();
+    }
+ 
+    
+    
+
+    const updateData: any = { managerId: manager.userId };
+    if (department||dto?.departmentId) updateData.departmentId = department.id || dto.departmentId;
+    if (shift||dto?.shiftId) updateData.shiftId = shift.id || dto.shiftId;
+    if (dto?.salary !== undefined) updateData.salary = Number(dto.salary);
+    if (dto?.name !== undefined) updateData.name = dto.name;
+    if (dto?.email !== undefined) updateData.email = dto.email;
+    if (dto?.phone !== undefined) updateData.phone = dto.phone;
+    if (dto?.jobTitle !== undefined) updateData.jobTitle = dto.jobTitle;
+
+    const updated = await this.prisma.employeeProfile.update({
+      where: { id: check.employeeProfile.id },
+      data: updateData,
+      include: {
+        department: true,
+        shift: true,
+        user: { select: { id: true, fullName: true, email: true, role: true } }
+      }
+    });
+
+
+    return ResponseHelper.success(updated, `تمت نقل الموظف إلى قسم: ${updated.department?.name} و الوردية: ${updated.shift?.name} بنجاح`);
   }
 
   /** 
    * دالة تدقيق وتعديل وإضافة ملاحظات للعامل من طرف المدير
-   * Function to audit, edit, and add notes to the employee by the manager
    */
   async handleAndAuditMyEmployees(email: string, employeeId: string, auditDto: auditMyEmployeeDto) {
     try {
@@ -128,7 +250,7 @@ export class ManagingService {
       });
 
       if (!check || check.role !== Role.EMPLOYEE || !check.employeeProfile) {
-        throw new UnauthorizedException("العامل غير موجود أو ليس لديه ملف موظف");
+        throw new CannotAssignManagerAsEmployeeException();
       }
 
       // 1. تحديث بيانات الملف الشخصي للموظف (الراتب، هل يعمل، الوردية)
@@ -160,119 +282,11 @@ export class ManagingService {
         });
       }
 
-      return {
-        message: "تم تحديث وتدقيق بيانات الموظف بنجاح",
-        profile: updatedProfile
-      };
-    } catch(e) {
-      throw new BadRequestException('خطأ في تدقيق بيانات الموظف، رسالة الخطأ: ' + e?.message);
+      return ResponseHelper.success(updatedProfile, 'تم تحديث وتدقيق بيانات الموظف بنجاح');
+    } catch (e: any) {
+      if (e instanceof CannotAssignManagerAsEmployeeException) throw e;
+      throw new AuditEmployeeFailedException(e?.message);
     }
-  }
-
-  // اضافه مناوبه 
-  // adding shift
-  async newShfit(Dto: shift) {
-    const Id = randomUUID();
-    try {
-      await this.prisma.shift.create({
-        data: {
-          id: Id,
-          managerName:Dto.managerName,
-          name: Dto.name,
-          startTime: Dto.startTime,
-          endTime: Dto.endTime,
-          gracePeriodMinIn: Dto.gracePeriodMinIn,
-          gracePeriodMinOut: Dto.gracePeriodMinOut,
-          departmentsId: Dto.departmentsId,
-        },
-      });
-      return 'تمت إضافة الوردية بنجاح';
-    } catch (e) {
-      throw new BadRequestException('خطأ في إضافة الوردية: ' + e?.message);
-    }
-  }
-
-  // جلب الورديات التابعة لأقسام المدير
-  async getShifts(userId: string , role: Role) {
-    const manager = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        fullName:true,
-      adminProfile: true 
-
-      }
-    });
-    if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
-       const {fullName,adminProfile} = manager 
-     
-    const departments = await this.prisma.department.findMany({
-      where: { managerId: adminProfile?.userId },
-      select: { id: true, name: true }
-    });
-
-    const deptIds = departments.map(d => d.id);
-
-    
-    const shifts = await this.prisma.shift.findMany({
-      where: { departmentsId: { in: deptIds } },
-      include: {
-        _count: {
-          select: { employees: true }
-        },
-        departments: {
-          select: { name: true }
-        }
-      }
-    });
-
-    return shifts.map(s => ({
-      id: s.id,
-      managerName:s.managerName,
-      name: s.name,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      gracePeriodMinIn: s.gracePeriodMinIn,
-      gracePeriodMinOut: s.gracePeriodMinOut,
-      departmentsId: s.departmentsId,
-      departmentName: s.departments.name,
-      employeeCount: s._count.employees,
-    }));
-  }
-
-  // تعديل وردية
-  async updateShift(shiftId: string, dto: UpdateShiftDto) {
-    try {
-      return await this.prisma.shift.update({
-        where: { id: shiftId },
-        data: {
-          ...(dto.name !== undefined && { name: dto.name }),
-          ...(dto.startTime !== undefined && { startTime: dto.startTime }),
-          ...(dto.endTime !== undefined && { endTime: dto.endTime }),
-          ...(dto.gracePeriodMinIn !== undefined && { gracePeriodMinIn: dto.gracePeriodMinIn }),
-          ...(dto.gracePeriodMinOut !== undefined && { gracePeriodMinOut: dto.gracePeriodMinOut }),
-          ...(dto.departmentsId !== undefined && { departmentsId: dto.departmentsId }),
-        }
-      });
-    } catch (e) {
-      throw new BadRequestException('خطأ في تعديل الوردية: ' + e?.message);
-    }
-  }
-
-  // حذف وردية
-  async deleteShift(shiftId: string) {
-    const employeeCount = await this.prisma.employeeProfile.count({
-      where: { shiftId }
-    });
-
-    if (employeeCount > 0) {
-      throw new BadRequestException(`لا يمكن حذف الوردية لأنها مرتبطة بـ ${employeeCount} موظف. يرجى نقلهم أولاً.`);
-    }
-
-    await this.prisma.shift.delete({
-      where: { id: shiftId }
-    });
-
-    return { message: "تم حذف الوردية بنجاح" };
   }
 
   // قبول/مراجعة عذر الموظف
@@ -282,19 +296,14 @@ export class ManagingService {
       include: { attendance: true }
     });
 
-    if (!excuse) throw new NotFoundException('العذر غير موجود');
+    if (!excuse) throw new ExcuseNotFoundException();
 
     const updatedExcuse = await this.prisma.excuse.update({
       where: { id: excuseId },
       data: { isApproved: true }
     });
 
-   
-
-    return {
-      message: 'تم قبول العذر بنجاح وتحديث حالة الحضور',
-      excuse: updatedExcuse
-    };
+    return ResponseHelper.success(updatedExcuse, 'تم قبول العذر بنجاح وتحديث حالة الحضور');
   }
 
   // جلب الأعذار المعلقة للموظفين التابعين للمدير
@@ -302,9 +311,9 @@ export class ManagingService {
     const manager = await this.prisma.adminProfile.findUnique({
       where: { userId: managerUserId }
     });
-    if (!manager) throw new UnauthorizedException("المدير غير موجود أو ليس لديه ملف مدير");
+    if (!manager) throw new ManagerProfileNotFoundException();
 
-    return this.prisma.excuse.findMany({
+    const excuses = await this.prisma.excuse.findMany({
       where: {
         isApproved: false,
         attendance: {
@@ -325,20 +334,73 @@ export class ManagingService {
         }
       }
     });
+
+    return ResponseHelper.success(excuses, 'تم جلب الأعذار المعلقة بنجاح');
   }
 
-  // حذف عامل من المدير
-  // removing employee from manager
-  async removeEmployee(employeeUserId: string) {
-    const employee = await this.prisma.employeeProfile.findUnique({
-      where: { userId: employeeUserId }
+  // فصل عامل من الفريق
+  async firedEmployee(employeeUserId: string) {
+    const employee = await this.prisma.employeeProfile.findFirst({
+    where: { OR:[
+        {userId: employeeUserId },
+         {id: employeeUserId}],
+      
+        }
     });
-    if (!employee) throw new UnauthorizedException("العامل غير موجود");
+    if (!employee) throw new EmployeeNotFoundException();
 
-    return this.prisma.employeeProfile.update({
+    if(!employee.managerId) throw new EmployeeNotUnderManagerException()
+
+    const updated = await this.prisma.employeeProfile.update({
       where: { id: employee.id },
-      data: { managerId: null }
+      data: { 
+        managerId: null,
+        departmentId: null,
+        shiftId: null 
+       }
     });
+
+    return ResponseHelper.success(updated, 'تم إزالة الموظف من فريقك بنجاح');
+  }
+
+  async truneToDepartmentEmployee(managerId:string ,employeeUserId: string ,departmentId: string,  shiftId: string) {
+
+    const employee = await this.prisma.employeeProfile.findFirst({
+      where: { OR:[
+        {userId: employeeUserId },
+         {id: employeeUserId}],
+      
+        }
+    });
+
+    const mananer = await this.prisma.adminProfile.findFirst({
+      where: { 
+         userId:managerId
+        }
+    });
+
+    if (!mananer) throw new ManagerProfileNotFoundException();
+
+    if (employee && employee.managerId !== mananer.userId) throw new EmployeeNotUnderManagerException()
+
+    if (!employee) throw new EmployeeNotFoundException();
+
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId }
+    });
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId }
+    });
+    if (!department) throw new DepartmentNotFoundException();
+    if (!shift) throw new ShiftNotFoundException();
+
+    const updated = await this.prisma.employeeProfile.update({
+      where: { id: employee.id },
+      data: { departmentId: department.id,
+            shiftId: shift.id
+            }
+    });
+
+    return ResponseHelper.success(updated, `تمت نقل الموظف إلى قسم: ${department.name} و الوردية: ${shift.name} بنجاح`);
   }
 }
-

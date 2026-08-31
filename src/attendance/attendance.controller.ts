@@ -1,8 +1,8 @@
 import { Controller, Get, Post, Body, Patch, Query } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
-import { Auth } from '../core/decorators/golebl.auth.decorator';
+import { Auth } from '../core/decorators/global.auth.decorator';
 import { Role } from '@prisma/client';
-import { CurrentUser } from '../core/decorators/currntUser.decorator';
+import { CurrentUser } from '../core/decorators/current-user.decorator';
 import { SubmitExcuseDto } from './dto/submit-excuse.dto';
 import { Modes } from '../utilities/types/dashboard-registry.types';
 import { UtilitiesService } from '../utilities/utilities.service';
@@ -25,7 +25,7 @@ export class CheckInDto {
   @ApiProperty({ description: 'معرف الوردية المرتبطة' })
   @IsNotEmpty()
   @IsString()
-  shifId: string;
+  shiftId: string;
 
   @ApiProperty({ description: 'معرف الموظف' })
   @IsNotEmpty()
@@ -69,7 +69,7 @@ export class CheckOutDto {
   @ApiProperty({ description: 'معرف الوردية' })
   @IsNotEmpty()
   @IsString()
-  shifId: string;
+  shiftId: string;
 
   @ApiProperty({ description: 'تاريخ ووقت تسجيل الانصراف' })
   @IsNotEmpty()
@@ -104,7 +104,7 @@ export class AttendanceController {
     ) {
     return this.attendanceService.checkIn(
         body.employeeId ,
-        body.shifId,
+        body.shiftId,
         body.checkIn,
         body.notes,
         body.excused,
@@ -120,7 +120,7 @@ export class AttendanceController {
       return this.attendanceService.checkOut(
         Id,
         body.attendId,
-        body.shifId,
+        body.shiftId,
         new Date(body.checkOut),
         body.notes,
         body.excused,
@@ -136,17 +136,7 @@ export class AttendanceController {
       return this.attendanceService.fetchSourceData(userId, employeeId,date);
     }
 
-     @Get('bounded-period-report')
-  getBoundedPeriodReport(
-    @CurrentUser('userId') userId: string,
-    @Query('dateAnchor') dateAnchor?: string , 
-    @Query('mode') mode: Modes = Modes.WEEKLY,
-    @Query('employeeId') employeeId?: string,
-  ) {
-        const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
-        dateAnchor = dateAnchor || defaultDate;
-    return this.utility.fetchBoundedPeriodReport(userId, dateAnchor, mode, employeeId);
-  }
+  
 
   // POST /attendance/submit-excuse
   @Post('submit-excuse')
@@ -155,6 +145,18 @@ export class AttendanceController {
     @Body() dto: SubmitExcuseDto,
   ) {
     return this.attendanceService.submitExcuse(userId, dto);
+  }
+
+  // GET /attendance/bounded-period-report
+  @Get('bounded-period-report')
+  getBoundedPeriodReport(
+    @CurrentUser('userId') userId: string,
+    @Query('dateAnchor') dateAnchor?: string,
+    @Query('mode') mode: Modes = Modes.WEEKLY,
+    @Query('employeeId') employeeId?: string,
+  ) {
+    const defaultDate = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+    return this.utility.fetchPeriodReport(userId, dateAnchor || defaultDate, mode ,employeeId);
   }
 }
 

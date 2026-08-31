@@ -14,13 +14,17 @@ import {
   EnrichedEmployee,
   DailyBreakdownEntry
 } from './types/statistics.types';
-import { DisciplineRating } from './types/dashboard-registry.types';
+import { DisciplineRating, Modes } from './types/dashboard-registry.types';
+import { CalculatePeriodService } from './calculate-period.service';
 
 const TZ = 'Asia/Riyadh';
 
 @Injectable()
 export class StatisticsHelperService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private calculatePeriod: CalculatePeriodService,
+  ) {}
 
   // ═══════════════════════════════════════════════════════════════
   // 1. summarizeAttendances — الدالة الأساسية لكل الإحصائيات
@@ -106,88 +110,175 @@ export class StatisticsHelperService {
       });
     }
 
-        const rate =
+    const rate =
       totalDays > 0
         ? Math.round((onTimeDays / totalDays) * 100)
-        : 0; // لا يوجد سجلات = لا مخالفات
+        : 0;
 
     const label = this.computeDisciplineRating(rate);
 
     return {
       rate,
       label,
-      days:dailyBreakdown,
-      summary:{
-          totalDays,
-          presentDays: onTimeDays + lateDays,
-          onTimeDays,
-          lateDays,
-          absentDays,
-          excusedDays,
-          escapedDays,
-          deductionDays,
-          earlyDepartureDays,
-          totalWorkedMinutes,
-          totalWorkedHours: Math.round((totalWorkedMinutes / 60) * 10) / 10,
-          totalDelayMinutes,
-          totalDeductions,
-          totalEarlyLeaveMinutes,
-    }
+      days: dailyBreakdown,
+      summary: {
+        totalDays,
+        presentDays: onTimeDays + lateDays,
+        onTimeDays,
+        lateDays,
+        absentDays,
+        excusedDays,
+        escapedDays,
+        deductionDays,
+        earlyDepartureDays,
+        totalWorkedMinutes,
+        totalWorkedHours: Math.round((totalWorkedMinutes / 60) * 10) / 10,
+        totalDelayMinutes,
+        totalDeductions,
+        totalEarlyLeaveMinutes,
+      }
     };
   }
 
   // ═══════════════════════════════════════════════════════════════
   // 2. computeDisciplineRate — حساب معدل الانضباط
   // ═══════════════════════════════════════════════════════════════
-  // يُستدعى من: profile, search, my-employees, dashboard, daily-report
-  // المعادلة: (أيام ON_TIME ÷ إجمالي الأيام المسجلة) × 100
+  // يُستدعى من: profile, search, my-employees, dashboard, daily-report, employee & managing controllers
+  // يدعم كلاً من: days (عدد الأيام) أو mode (ALL, DAILY, WEEKLY, MONTHLY) مع dateAnchor
   async computeDisciplineRate(
     employeeProfileId: string,
-    days: number = 30,
+    modeOrDays: Modes | number = Modes.MONTHLY,
+    dateAnchor?: string,
+    includeSummary?: boolean,
   ): Promise<DisciplineRate> {
-    const now = toZonedTime(Date.now(), TZ);
-    const start = startOfDay(addDays(now, -days));
+    let startDate: Date;
+    let endDate: Date | undefined;
+    let  periodCountDiscipline: string;
+
+    if (typeof modeOrDays === 'number') {
+      const now = toZonedTime(Date.now(), TZ);
+      startDate = startOfDay(addDays(now, - modeOrDays));
+       periodCountDiscipline = `آخر ${modeOrDays} يوم`;
+    } else {
+      const anchor = dateAnchor || format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+      const period = this.calculatePeriod.calculateMonthlyBoundedPeriod(modeOrDays, anchor);
+      startDate = period.startDate;
+      endDate = period.endDate;
+       periodCountDiscipline = period.periodLabel;
+    }
+
+    const dateFilter: any = { gte: startDate };
+    if (endDate) {
+      dateFilter.lt = endDate;
+    }
 
     const attendances = await this.prisma.attendance.findMany({
       where: {
         employeeProfileId,
-        date: { gte: start },
+        date: dateFilter,
       },
     });
 
-    const {summary} = this.summarizeAttendances(attendances);
-    const rate =
-      summary.totalDays > 0
-        ? Math.round((summary.onTimeDays / summary.totalDays) * 100)
-        : 0; // لا يوجد سجلات = لا مخالفات
-
-    const label = this.computeDisciplineRating(rate);
+    const { summary, rate, label } = this.summarizeAttendances(attendances);
+    
+    let includeSum: any | undefined;
+    if (includeSummary) {
+      includeSum = { 
+        totalDays: summary.totalDays,
+        onTimeDays: summary.onTimeDays,
+        lateDays: summary.lateDays,
+        absentDays: summary.absentDays,
+      };
+    }
 
     return {
       rate,
       label,
-      totalDays: summary.totalDays,
-      onTimeDays: summary.onTimeDays,
-      lateDays: summary.lateDays,
-      absentDays: summary.absentDays,
+       periodCountDiscipline,
+      includeSum,
     };
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 3. enrichEmployeeData — إثراء بيانات الموظف
+  // 3. computeOrganizationDiscipline — التقييم الشامل للمؤسسة أو القسم
+  // ═══════════════════════════════════════════════════════════════
+  async computeOrganizationDiscipline(
+    managerUserId: string,
+    mode: Modes = Modes.MONTHLY,
+    dateAnchor?: string,
+    departmentId?: string,
+  ) {
+    const admin = await this.prisma.adminProfile.findUnique({
+      where: { userId: managerUserId },
+    });
+    if (!admin) {
+      return {
+        organizationRate: 0,
+        organizationLabel: 'NEEDS_IMPROVEMENT' as DisciplineRating,
+        periodCountDiscipline: '',
+        employeeRates: [],
+      };
+    }
+
+    const whereClause: any = { managerId: admin.userId };
+    if (departmentId) {
+      whereClause.departmentId = departmentId;
+    }
+
+    const employees = await this.prisma.employeeProfile.findMany({
+      where: whereClause,
+      include: {
+        user: { select: { fullName: true } },
+      },
+    });
+
+    const employeeRates: Array<{
+      employeeId: string;
+      name: string;
+      rate: number;
+      label: DisciplineRating;
+    }> = [];
+
+    let totalRate = 0;
+    let  periodCountDiscipline = '';
+
+    for (const emp of employees) {
+      const disc = await this.computeDisciplineRate(emp.id, mode, dateAnchor);
+       periodCountDiscipline = disc.periodCountDiscipline ||  periodCountDiscipline;
+      employeeRates.push({
+        employeeId: emp.userId,
+        name: emp.user.fullName,
+        rate: disc.rate,
+        label: disc.label as DisciplineRating,
+      });
+      totalRate += disc.rate;
+    }
+
+    const organizationRate = employees.length > 0 ? Math.round(totalRate / employees.length) : 0;
+    const organizationLabel = this.computeDisciplineRating(organizationRate);
+
+    return {
+      organizationRate,
+      organizationLabel,
+      periodCountDiscipline,
+      employeeRates,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 4. enrichEmployeeData — إثراء بيانات الموظف
   // ═══════════════════════════════════════════════════════════════
   // يُستدعى من: profile, my-employees, search
   // يُضيف: disciplineRate + attendanceSummary (آخر 30 يوم)
   async enrichEmployeeData(
     employeeProfile: any,
-    options?: { includeDiscipline?: boolean; disciplineDays?: number },
+    options?: { includeDiscipline?: boolean; disciplineDays?: number; includeSum?: boolean },
   ): Promise<EnrichedEmployee> {
     const profileId = employeeProfile.id;
     const days = options?.disciplineDays ?? 30;
     const now = toZonedTime(Date.now(), TZ);
     const start = startOfDay(addDays(now, - days));
 
-    // جلب سجلات الحضور لآخر N يوم
     const attendances = await this.prisma.attendance.findMany({
       where: {
         employeeProfileId: profileId,
@@ -195,26 +286,25 @@ export class StatisticsHelperService {
       },
     });
 
-    const {summary }= this.summarizeAttendances(attendances);
+    const { summary, label, rate } = this.summarizeAttendances(attendances);
 
     let disciplineRate: DisciplineRate | undefined;
     if (options?.includeDiscipline !== false) {
-      const rate =
-        summary.totalDays > 0
-          ? Math.round(
-              (summary.onTimeDays / summary.totalDays) * 100,
-            )
-          : 100;
-
-      const label = this.computeDisciplineRating(rate);
+      let includeSum: any | undefined;
+      if (options?.includeSum) {
+        includeSum = { 
+          totalDays: summary.totalDays,
+          onTimeDays: summary.onTimeDays,
+          lateDays: summary.lateDays,
+          absentDays: summary.absentDays,
+        };
+      }
 
       disciplineRate = {
         rate,
         label,
-        totalDays: summary.totalDays,
-        onTimeDays: summary.onTimeDays,
-        lateDays: summary.lateDays,
-        absentDays: summary.absentDays,
+         periodCountDiscipline: `آخر ${days} يوم`,
+        includeSum,
       };
     }
 
@@ -226,20 +316,17 @@ export class StatisticsHelperService {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 4. computePeriodSummary — ملخص تقرير أسبوعي/شهري
+  // 5. computePeriodSummary — ملخص تقرير أسبوعي/شهري
   // ═══════════════════════════════════════════════════════════════
-  // يُستدعى من: weekly-report, monthly-report (المدير + الموظف)
-  // يأخذ سجلات حضور الفترة → يُعيد ملخص + السجلات الخام
   computePeriodSummary(attendances: any[]): PeriodSummary {
     const summary = this.summarizeAttendances(attendances);
     return {
-      summary
+      summary,
     };
   }
 
- 
   // ═══════════════════════════════════════════════════════════════
-  // 8. computeDisciplineRating — إرجاع التقييم بالإنجليزية للـ DTO الموحد
+  // 6. computeDisciplineRating — إرجاع التقييم بالإنجليزية للـ DTO الموحد
   // ═══════════════════════════════════════════════════════════════
   computeDisciplineRating(rate: number): DisciplineRating {
     if (rate >= 95) return 'EXCELLENT';
