@@ -32,6 +32,9 @@ const getDatabaseUrl = (): string => {
   );
 };
 
+const databaseUrl = getDatabaseUrl();
+process.env.DATABASE_URL = databaseUrl;
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
@@ -39,6 +42,6 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: getDatabaseUrl(),
+    url: databaseUrl,
   },
 });
