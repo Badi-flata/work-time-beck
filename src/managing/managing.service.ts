@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Role } from '@prisma/client';
+import { Role, AttendanceStatus } from '@prisma/client';
 import { StatisticsHelperService } from '../utilities/statistics-helper.service';
 import {
   ManagerProfileNotFoundException,
@@ -289,21 +289,59 @@ if( !department ||!dto?.departmentId){
     }
   }
 
-  // قبول/مراجعة عذر الموظف
-  async approveExcuse(excuseId: string) {
+  // فحص وقبول/رفض عذر الموظف (Examination Handling)
+  async examineExcuse(
+    excuseId: string,
+    dto: { isApproved: boolean; adminNotes?: string }
+  ) {
     const excuse = await this.prisma.excuse.findUnique({
       where: { id: excuseId },
-      include: { attendance: true }
+      include: {
+        attendance: true,
+      }
     });
 
     if (!excuse) throw new ExcuseNotFoundException();
 
+    const isApproved = dto.isApproved !== false;
+
     const updatedExcuse = await this.prisma.excuse.update({
       where: { id: excuseId },
-      data: { isApproved: true }
+      data: { isApproved }
     });
 
-    return ResponseHelper.success(updatedExcuse, 'تم قبول العذر بنجاح وتحديث حالة الحضور');
+    if (excuse.attendanceId) {
+      const existingNotes = excuse.attendance?.adminNotes;
+      const newNote = dto.adminNotes || (isApproved ? 'تم قبول العذر من قِبل المدير' : 'تم رفض العذر من قِبل المدير');
+      const combinedNotes = [existingNotes, newNote].filter(Boolean).join(' | ');
+
+      const updateData: any = { adminNotes: combinedNotes };
+
+      // إذا تمت الموافقة وكان السجل مسجلاً كـ ABSENT، نحدث الحالة إلى EXCUSED
+      if (isApproved && excuse.attendance?.status === AttendanceStatus.ABSENT) {
+        updateData.status = AttendanceStatus.EXCUSED;
+      }
+
+      await this.prisma.attendance.update({
+        where: { id: excuse.attendanceId },
+        data: updateData,
+      });
+    }
+
+    return ResponseHelper.success(
+      updatedExcuse,
+      isApproved ? 'تم قبول العذر وتحديث سجل الحضور بنجاح' : 'تم رفض العذر وتدوين ملاحظات المدير بنجاح'
+    );
+  }
+
+  // قبول عذر الموظف
+  async approveExcuse(excuseId: string, adminNotes?: string) {
+    return this.examineExcuse(excuseId, { isApproved: true, adminNotes });
+  }
+
+  // رفض عذر الموظف
+  async rejectExcuse(excuseId: string, adminNotes?: string) {
+    return this.examineExcuse(excuseId, { isApproved: false, adminNotes });
   }
 
   // جلب الأعذار المعلقة للموظفين التابعين للمدير
@@ -313,12 +351,19 @@ if( !department ||!dto?.departmentId){
     });
     if (!manager) throw new ManagerProfileNotFoundException();
 
+    const subordinates = await this.prisma.employeeProfile.findMany({
+      where: { managerId: manager.userId },
+      select: { userId: true }
+    });
+    const subordinateUserIds = subordinates.map(s => s.userId);
+
     const excuses = await this.prisma.excuse.findMany({
       where: {
         isApproved: false,
-        attendance: {
-          employeeProfile: { managerId: manager.userId }
-        }
+        OR: [
+          { submittedById: { in: subordinateUserIds } },
+          { attendance: { employeeProfile: { managerId: manager.userId } } }
+        ]
       },
       include: {
         attendance: {
@@ -332,10 +377,24 @@ if( !department ||!dto?.departmentId){
             }
           }
         }
-      }
+      },
+      orderBy: { createdAt: 'desc' }
     });
 
-    return ResponseHelper.success(excuses, 'تم جلب الأعذار المعلقة بنجاح');
+    const enrichedExcuses = await Promise.all(
+      excuses.map(async (exc) => {
+        const submitter = await this.prisma.user.findUnique({
+          where: { id: exc.submittedById },
+          select: { fullName: true, email: true, phone: true }
+        });
+        return {
+          ...exc,
+          submitter,
+        };
+      })
+    );
+
+    return ResponseHelper.success(enrichedExcuses, 'تم جلب الأعذار المعلقة بنجاح');
   }
 
   // فصل عامل من الفريق

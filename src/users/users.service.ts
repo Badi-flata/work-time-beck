@@ -4,10 +4,8 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from './../prisma/prisma.service';
 import { AuthService } from '../core/auth/auth.service';
 import { Prisma ,Role } from '@prisma/client';
-import { InstanceLinksHost } from '@nestjs/core/injector/instance-links-host';
 import { randomUUID } from 'crypto';
 import * as bcrypt    from 'bcrypt';
-import { ExceptionsHandler } from '@nestjs/core/exceptions/exceptions-handler';
 import { UtilitiesService } from '../utilities/utilities.service';
 import { StatisticsHelperService } from 'src/utilities/statistics-helper.service';
 import { InvalidCredentialsException, InsufficientPermissionsException } from '../core/domain-exceptions/auth.exceptions';
@@ -352,8 +350,9 @@ async getMyProfile(userId: string) {
       });
 
       for (const dep of departments) {
-        await this.prisma.employeeProfile.deleteMany({
-          where: { departmentId: dep.id }
+        await this.prisma.employeeProfile.updateMany({
+          where: { departmentId: dep.id },
+          data: { managerId: null, departmentId: null, shiftId: null },
         });
         await this.prisma.department.delete({
           where: { id: dep.id }

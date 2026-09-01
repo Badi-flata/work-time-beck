@@ -189,8 +189,29 @@ export class ManagingController {
 
   // POST /managing/approve-excuse/:id
   @Post('approve-excuse/:id')
-  approveExcuse(@Param('id') excuseId: string) {
-    return this.managingService.approveExcuse(excuseId);
+  approveExcuse(
+    @Param('id') excuseId: string,
+    @Body() body?: { adminNotes?: string }
+  ) {
+    return this.managingService.approveExcuse(excuseId, body?.adminNotes);
+  }
+
+  // POST /managing/reject-excuse/:id
+  @Post('reject-excuse/:id')
+  rejectExcuse(
+    @Param('id') excuseId: string,
+    @Body() body?: { adminNotes?: string }
+  ) {
+    return this.managingService.rejectExcuse(excuseId, body?.adminNotes);
+  }
+
+  // POST /managing/examine-excuse/:id
+  @Post('examine-excuse/:id')
+  examineExcuse(
+    @Param('id') excuseId: string,
+    @Body() body: { isApproved: boolean; adminNotes?: string }
+  ) {
+    return this.managingService.examineExcuse(excuseId, body);
   }
 
   // ─── الانصراف التلقائي (Cron / Admin trigger) ─────────────────

@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException , UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException , UnauthorizedException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import {
   startOfDay,
   setHours,
@@ -16,10 +16,6 @@ import { AttendanceStatus, ExcuseType ,Role } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { SubmitExcuseDto } from './dto/submit-excuse.dto';
 import { UtilitiesService } from '../utilities/utilities.service';
-import { fromFetch } from 'rxjs/fetch';
-import { AllExceptionsFilter } from 'src/core/filters/all-exceptions.filter';
-import { error } from 'console';
-import { networkInterfaces } from 'os';
 import { AlreadyCheckedInException, AlreadyCheckedOutException, CheckOutBeforeCheckInException, CheckInExpiredException, CheckOutExpiredException } from '../core/domain-exceptions/attendance.exceptions';
 import { ResponseHelper } from '../core/helpers/response.helper';
 
@@ -165,7 +161,7 @@ export class AttendanceService {
 
        const record = await this.prisma.attendance.create({
          data: {
-           id: `${status}-${checkIn}-${shiftId}`,
+           id: randomUUID(),
            date: startOfDay(shiftStart),
            checkIn: checkInDate,
            status,
@@ -198,14 +194,16 @@ export class AttendanceService {
            departmentName: departmentName,
            isWorking,
          },
-         `تم تسجيل الحضور  ${status === AttendanceStatus.LATE ? 'مع تأخير' : 'بنجاح في الموعد المحدد'}  `
+         `تم تسجيل الحضور ${status === AttendanceStatus.LATE ? 'مع تأخير' : 'بنجاح في الموعد المحدد'}`
        );
      } catch (err: any) {
-       console.log("التفاصيل:", err);
+       if (err.code === 'P2002') {
+         throw new AlreadyCheckedInException();
+       }
        if (err.status) {
          throw err;
        }
-       throw new Error(err.message || 'حدث خطأ في تسجيل الحضور');
+       throw err;
      }
    }
   // ─────────────────────────────────────────────────────────────
@@ -290,9 +288,9 @@ export class AttendanceService {
         const isEarly = nowZoned.getTime() < shiftEnd.getTime();
         const earlyLeaveMinutes = isEarly ? Math.max(0, Math.floor((shiftEnd.getTime() - nowZoned.getTime()) / (60 * 1000))) : 0;
  
-        // Calculate total worked hours (Int)
+        // Calculate total worked hours (Float / decimal precision)
         const diffMin = differenceInMinutes(nowZoned, attendance.checkIn!);
-        const totalWorkedHours = Math.max(0, Math.round(diffMin / 60));
+        const totalWorkedHours = Math.max(0, Math.round((diffMin / 60) * 10) / 10);
  
         // Check for approved excuse
         const dayStart = startOfDay(attendance.date);
@@ -378,7 +376,7 @@ export class AttendanceService {
    // ─────────────────────────────────────────────────────────────
    // getShiftData - الحصول على بيانات الوردية
    // ─────────────────────────────────────────────────────────────
-      async fetchSourceData(userId: string, employeeId?: string, date?:string) {
+      async fetchSourceData(userId: string,  date?:string ,employeeId?: string) {
         const targetId = employeeId || userId;
         const employee = await this.prisma.employeeProfile.findFirst({
           where: {
@@ -448,9 +446,6 @@ export class AttendanceService {
           }
         }) || null;
         
-        console.log("isAttend", attendReport !== null);
-        console.log("time is:", time);
-        
         const name = employee.user?.fullName || '';
         const departmentName = attendReport ? attendReport.departmentName : employee.department?.name ;
         const managerName = attendReport ? attendReport.managerName : employee.manager?.user?.fullName ;
@@ -492,7 +487,6 @@ export class AttendanceService {
    // submitExcuse -  تقديم عذر
    // ─────────────────────────────────────────────────────────────
   async submitExcuse(userId: string, dto: SubmitExcuseDto) {
-    if(dto.isApproved === false)return {Message:" العذر مرفوض ",data:dto , status:400}
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { employeeProfile:{
@@ -536,18 +530,17 @@ export class AttendanceService {
     }
 
     if (attendance) {
-
       const excuse = await this.prisma.excuse.create({
         data:{
-        id: randomUUID(),
-        reason: dto.reason,
-        type: dto.type,
-        attendanceId: attendance.id,
-        submittedById: user.id,
-        isApproved: true, 
+          id: randomUUID(),
+          reason: dto.reason,
+          type: dto.type,
+          attendanceId: attendance.id,
+          submittedById: user.id,
+          isApproved: false, // قيد تدقيق ومراجعة المدير
         }
-      })
-      return ResponseHelper.success(excuse, "تم قبول العذر");
+      });
+      return ResponseHelper.success(excuse, "تم تقديم طلب العذر بنجاح وهو بانتظار مراجعة واعتماد المدير");
     }
 
     const excuse = await this.prisma.excuse.create({
@@ -556,12 +549,10 @@ export class AttendanceService {
         reason: dto.reason,
         type: dto.type,
         submittedById: user.id,
-        isApproved: true,
+        isApproved: false, // قيد تدقيق ومراجعة المدير
       }
     });
 
-    
-
-    return ResponseHelper.success(excuse, "تم قبول العذر");
+    return ResponseHelper.success(excuse, "تم تقديم طلب العذر بنجاح وهو بانتظار مراجعة واعتماد المدير");
   }
 } 

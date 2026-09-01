@@ -163,8 +163,7 @@ export class UtilitiesService {
     let escapedCount = 0;
     let earlyDepartureCount = 0;
     let deductedCount = 0;
-    let globlaRating = 0
-
+    let globalRating = 0;
 
     const registry: RegistryEntry[] = [];
 
@@ -184,7 +183,7 @@ export class UtilitiesService {
         isShiftActiveOrPast = true;
       } else if (anchorStr === todayStr) {
         const currentMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
-        const [sh, sm] = emp.shift?.startTime.split(':').map(Number) || [0, 0];
+        const [sh, sm] = emp.shift?.startTime?.split(':').map(Number) || [0, 0];
         const shiftStartMinutes = sh * 60 + sm;
         if (currentMinutes >= shiftStartMinutes) {
           isShiftActiveOrPast = true;
@@ -239,8 +238,7 @@ export class UtilitiesService {
       }
 
       // حساب التقييم
-
-      globlaRating += rate;
+      globalRating += rate;
 
       registry.push({
         employeeId: emp.userId,
@@ -257,9 +255,9 @@ export class UtilitiesService {
       });
     }
 
-    // conut Globla Rating
-    const RatingOrginzation = totalSubordinates > 0 ? Math.round(globlaRating / totalSubordinates) : 0;
-    const OrginzationLabel = this.statsHelper.computeDisciplineRating(RatingOrginzation);
+    // count Global Rating
+    const ratingOrganization = totalSubordinates > 0 ? Math.round(globalRating / totalSubordinates) : 0;
+    const organizationLabel = this.statsHelper.computeDisciplineRating(ratingOrganization);
 
     // Apply filtering by status if requested
     let filteredRegistry = registry;
@@ -308,8 +306,10 @@ export class UtilitiesService {
 
     return {
       meta: {
-        RatingOrginzation,
-        OrginzationLabel,
+        RatingOrginzation: ratingOrganization,
+        OrginzationLabel: organizationLabel,
+        organizationRating: ratingOrganization,
+        organizationLabel: organizationLabel,
         periodScope: result.periodLabel,
         totalSubordinates: totalSubordinates,
         activeShiftContext: activeShiftContext,
@@ -419,129 +419,145 @@ export class UtilitiesService {
   }
  
   // ─────────────────────────────────────────────────────────────
-   // automaticallyCheck - التحقق التلقائي للغياب والانصراف
-   // ─────────────────────────────────────────────────────────────
-   async automaticallyCheck( userId:string): Promise<{
-     processed: number;
-     results: { id: string; employeeProfileId: string; outcome: string }[];
-     message: string;
-   }> {
-     const nowZoned = toZonedTime(Date.now(), TZ);
-     const today = startOfDay(nowZoned);
-     const nowMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
-     const dayOfWeek = nowZoned.getDay();
-     // عطلة نهاية الأسبوع: الجمعة (5) والسبت (6)
-     const isWeekendDay = (dayOfWeek === 5 || dayOfWeek === 6);
- 
-     const employees = await this.prisma.employeeProfile.findMany({
-      where:{managerId:userId},
-       include: {
-         shift: true,
-         department: {
-           select: { name: true }
-         },
-         attendances: {
-           where: { date: today },
-           include: { excuses: true }
-         }
-       }
-     });
- 
-     const results: { id: string; employeeProfileId: string; outcome: string }[] = [];
- 
-     for (const employee of employees) {
-       const shift = employee.shift;
-       if (!shift) continue;
- 
-       const [eh, em] = shift.endTime.split(':').map(Number);
-       const shiftEndMinutes = eh * 60 + em;
-       const shiftEndWithGrace = shiftEndMinutes + (shift.gracePeriodMinOut ?? 30);
- 
-       // المعالجة تبدأ فقط بعد انتهاء وقت الوردية + فترة السماح
-       if (nowMinutes < shiftEndWithGrace) continue;
- 
-       const attendance = employee.attendances[0] || null;
- 
-       if (attendance) {
-         // حالة 1: الموظف سجل دخول ولم يسجل خروج
-         if (attendance.checkIn && !attendance.checkOut) {
-           const shiftEnd = setMilliseconds(
-             setSeconds(setMinutes(setHours(nowZoned, eh), em), 0),
-             0,
-           );
-           const totalWorked = Math.max(0, differenceInHours(shiftEnd, attendance.checkIn));
- 
-           const hasApprovedExcuseOut = attendance.excuses?.some(
-             (exc: any) => exc.isApproved && exc.type === ExcuseType.EARLY_DEPARTURE
-           );
- 
-           if (hasApprovedExcuseOut || (attendance as any).isExcusedOut) {
-             await this.prisma.attendance.update({
-               where: { id: attendance.id },
-               data: {
-                 checkOut: shiftEnd,
-                 totalWorkedHours: totalWorked,
-                 earlyLeaveMinutes: 0,
-                 adminNotes: [
-                   attendance.adminNotes,
-                   'خروج تلقائي - الموظف لديه عذر معتمد للخروج',
-                 ]
-                   .filter(Boolean)
-                   .join(' | '),
-               },
-             });
-             results.push({
-               id: attendance.id,
-               employeeProfileId: employee.id,
-               outcome: 'EXCUSED_AUTO_OUT',
-             });
-           } else {
-             await this.prisma.attendance.update({
-               where: { id: attendance.id },
-               data: {
-                 checkOut: shiftEnd,
-                 totalWorkedHours: totalWorked,
-                 earlyLeaveMinutes: 0,
-                 status: AttendanceStatus.ESCAPY,
-                 adminNotes: 'خروج تلقائي - مغادر دون إذن بالانصراف',
-               },
-             });
-             results.push({
-               id: attendance.id,
-               employeeProfileId: employee.id,
-               outcome: 'ESCAPY',
-             });
-           }
-         }
-        } else {
-          // حالة 2: الموظف لم يسجل أي حضور اليوم
-          // إذا كان اليوم عطلة نهاية أسبوع، لا نعتبره غائباً
-          if (isWeekendDay) continue;
- 
-         const newAttendance = await this.prisma.attendance.create({
-           data: {
-             id: randomUUID(),
-             date: today,
-             status: AttendanceStatus.ABSENT,
-             employeeProfileId: employee.id,
-             shiftName: shift.name,
-             shiftStart: shift.startTime,
-             shiftEnd: shift.endTime,
-             graceIn: shift.gracePeriodMinIn,
-             graceOut: shift.gracePeriodMinOut,
-             managerName: shift.managerName || 'بدون مدير',
-             departmentName: employee.department?.name || 'بدون قسم',
-             adminNotes: 'غياب تلقائي - لم يسجل حضور اليوم',
-           }
-         });
- 
-         results.push({
-           id: newAttendance.id,
-           employeeProfileId: employee.id,
-           outcome: 'ABSENT',
-         });
-       }
-     }
+  // automaticallyCheck - التحقق التلقائي للغياب والانصراف
+  // ─────────────────────────────────────────────────────────────
+  async automaticallyCheck(userId: string): Promise<{
+    processed: number;
+    results: { id: string; employeeProfileId: string; outcome: string }[];
+    message: string;
+  }> {
+    const nowZoned = toZonedTime(Date.now(), TZ);
+    const today = startOfDay(nowZoned);
+    const nowMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
+    const dayOfWeek = nowZoned.getDay();
+    // عطلة نهاية الأسبوع: الجمعة (5) والسبت (6)
+    const isWeekendDay = (dayOfWeek === 5 || dayOfWeek === 6);
+
+    const employees = await this.prisma.employeeProfile.findMany({
+      where: { managerId: userId },
+      include: {
+        shift: true,
+        department: {
+          select: { name: true }
+        },
+        attendances: {
+          where: { date: today },
+          include: { excuses: true }
+        }
+      }
+    });
+
+    const results: { id: string; employeeProfileId: string; outcome: string }[] = [];
+
+    for (const employee of employees) {
+      const shift = employee.shift;
+      if (!shift || !shift.startTime || !shift.endTime) continue;
+
+      const [sh, sm] = shift.startTime.split(':').map(Number);
+      const shiftStartMinutes = sh * 60 + sm;
+      const [eh, em] = shift.endTime.split(':').map(Number);
+      const shiftEndMinutes = eh * 60 + em;
+      const shiftEndWithGrace = shiftEndMinutes + (shift.gracePeriodMinOut ?? 30);
+
+      // التحقق من انتهاء وقت الوردية (مع دعم الورديات العابرة لمنتصف الليل)
+      const isCrossDay = shiftEndMinutes < shiftStartMinutes;
+      const isShiftEnded = isCrossDay
+        ? (nowMinutes >= shiftEndWithGrace && nowMinutes < shiftStartMinutes)
+        : (nowMinutes >= shiftEndWithGrace);
+
+      // المعالجة تبدأ فقط بعد انتهاء وقت الوردية + فترة السماح
+      if (!isShiftEnded) continue;
+
+      const attendance = employee.attendances[0] || null;
+
+      if (attendance) {
+        // حالة 1: الموظف سجل دخول ولم يسجل خروج
+        if (attendance.checkIn && !attendance.checkOut) {
+          const shiftEnd = setMilliseconds(
+            setSeconds(setMinutes(setHours(nowZoned, eh), em), 0),
+            0,
+          );
+          const totalWorked = Math.max(0, differenceInHours(shiftEnd, attendance.checkIn));
+
+          const hasApprovedExcuseOut = attendance.excuses?.some(
+            (exc: any) => exc.isApproved && exc.type === ExcuseType.EARLY_DEPARTURE
+          );
+
+          if (hasApprovedExcuseOut || (attendance as any).isExcusedOut) {
+            await this.prisma.attendance.update({
+              where: { id: attendance.id },
+              data: {
+                checkOut: shiftEnd,
+                totalWorkedHours: totalWorked,
+                earlyLeaveMinutes: 0,
+                adminNotes: [
+                  attendance.adminNotes,
+                  'خروج تلقائي - الموظف لديه عذر معتمد للخروج',
+                ]
+                  .filter(Boolean)
+                  .join(' | '),
+              },
+            });
+            await this.prisma.employeeProfile.update({
+              where: { id: employee.id },
+              data: { isWorking: false }
+            });
+            results.push({
+              id: attendance.id,
+              employeeProfileId: employee.id,
+              outcome: 'EXCUSED_AUTO_OUT',
+            });
+          } else {
+            await this.prisma.attendance.update({
+              where: { id: attendance.id },
+              data: {
+                checkOut: shiftEnd,
+                totalWorkedHours: totalWorked,
+                earlyLeaveMinutes: 0,
+                status: AttendanceStatus.ESCAPY,
+                adminNotes: 'خروج تلقائي - مغادر دون إذن بالانصراف',
+              },
+            });
+            await this.prisma.employeeProfile.update({
+              where: { id: employee.id },
+              data: { isWorking: false }
+            });
+            results.push({
+              id: attendance.id,
+              employeeProfileId: employee.id,
+              outcome: 'ESCAPY',
+            });
+          }
+        }
+      } else {
+        // حالة 2: الموظف لم يسجل أي حضور اليوم
+        // إذا كان اليوم عطلة نهاية أسبوع، لا نعتبره غائباً
+        if (isWeekendDay) continue;
+
+        const newAttendance = await this.prisma.attendance.create({
+          data: {
+            id: randomUUID(),
+            date: today,
+            status: AttendanceStatus.ABSENT,
+            employeeProfileId: employee.id,
+            shiftName: shift.name,
+            shiftStart: shift.startTime,
+            shiftEnd: shift.endTime,
+            graceIn: shift.gracePeriodMinIn,
+            graceOut: shift.gracePeriodMinOut,
+            managerName: shift.managerName || 'بدون مدير',
+            departmentName: employee.department?.name || 'بدون قسم',
+            adminNotes: 'غياب تلقائي - لم يسجل حضور اليوم',
+          }
+        });
+
+        results.push({
+          id: newAttendance.id,
+          employeeProfileId: employee.id,
+          outcome: 'ABSENT',
+        });
+      }
+    }
  
      return {
        processed: results.length,
@@ -610,6 +626,8 @@ export class UtilitiesService {
       const [results , total] = await Promise.all([
         this.prisma.user.findMany({
           where,
+          skip,
+          take: limit,
           include: {
             adminProfile: {
               include: {
@@ -620,7 +638,7 @@ export class UtilitiesService {
             },
             employeeProfile: {
               include: {
-                manager:true,
+                manager: true,
                 department: true,
                 shift: true,
               },
@@ -636,28 +654,33 @@ export class UtilitiesService {
       if (includeDiscipline) {
         enrichedResults = await Promise.all(
           results.map(async (u) => {
-            
             if (u.employeeProfile && u.role === "EMPLOYEE") {
               const enriched = await this.statsHelper.enrichEmployeeData(u.employeeProfile);
-              return { ...u, employeeProfile: {
-                ...u.employeeProfile!,
-                managerId:u.employeeProfile.manager?.userId,
-               disciplineRate:{
-                  rate:enriched.organizationRate,
-                  label:enriched.organizationLabel,
-                  periodCountDiscipline:enriched.periodCountDiscipline,
+              return {
+                ...u,
+                employeeProfile: {
+                  ...u.employeeProfile!,
+                  managerId: u.employeeProfile.manager?.userId,
+                  disciplineRate: {
+                    rate: enriched.disciplineRate?.rate ?? 0,
+                    label: enriched.disciplineRate?.label ?? 'NEEDS_IMPROVEMENT',
+                    periodCountDiscipline: enriched.disciplineRate?.periodCountDiscipline ?? 'آخر 30 يوم',
+                  }
                 }
-              } };
-            }else if(u.adminProfile ){
+              };
+            } else if (u.adminProfile) {
               const enriched = await this.statsHelper.computeOrganizationDiscipline(u.id);
-              return { ...u, adminProfile: {
-                ...u.adminProfile!,
-                organizationDiscipline:{
-                  rate:enriched.organizationRate,
-                  label:enriched.organizationLabel,
-                  periodCountDiscipline:enriched.periodCountDiscipline,
+              return {
+                ...u,
+                adminProfile: {
+                  ...u.adminProfile!,
+                  organizationDiscipline: {
+                    rate: enriched.organizationRate,
+                    label: enriched.organizationLabel,
+                    periodCountDiscipline: enriched.periodCountDiscipline,
+                  }
                 }
-              } };
+              };
             }
             return u;
           })
@@ -678,7 +701,6 @@ export class UtilitiesService {
     }
   }
 
-  
   // ─────────────────────────────────────────────────────────────
   // salaryDeductionDaily - خصم الراتب اليومي
   // ─────────────────────────────────────────────────────────────
@@ -692,6 +714,7 @@ export class UtilitiesService {
       include: {
         attendances: {
           where: { date: today },
+          include: { excuses: true },
         },
       },
     });
@@ -711,31 +734,43 @@ export class UtilitiesService {
     const minuteRate = baseSalary / (22 * 8 * 60);
     const dailyRate = baseSalary / 22;
 
-    const { status, excuses, delayMinutes, earlyLeaveMinutes } =
-      todayAttendance;
+    const { status, excuses = [], delayMinutes = 0, earlyLeaveMinutes = 0 } = todayAttendance;
+
+    const approvedExcuses = (excuses || []).filter((e: any) => e.isApproved);
+    const hasApprovedLateExcuse = approvedExcuses.some((e: any) => e.type === 'LATE');
+    const hasApprovedAbsentExcuse = approvedExcuses.some((e: any) => e.type === 'ABSENT');
+    const hasApprovedEarlyExcuse = approvedExcuses.some((e: any) => e.type === 'EARLY_DEPARTURE');
 
     const breakdown: Record<string, number> = {};
     let todayDeduction = 0;
-   for(let i =0 ; i<excuses.length;i++){
-    if(excuses[i].type === 'ABSENT') continue;
 
-    if (status === "LATE" && excuses[i].type !== "LATE" && delayMinutes > 0) {
-      breakdown.lateDeduction = Math.ceil(delayMinutes * minuteRate);
-      todayDeduction += breakdown.lateDeduction;
+    // 1. خصم التأخير (إذا لم يكن هناك عذر معتمد للتأخير)
+    if (status === 'LATE' && delayMinutes > 0 && !hasApprovedLateExcuse) {
+      const lateDeduction = Math.ceil(delayMinutes * minuteRate);
+      breakdown.lateDeduction = lateDeduction;
+      todayDeduction += lateDeduction;
     }
-    
-    
-    if (status === "ABSENT") {
-      breakdown.earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
-      todayDeduction += breakdown.earlyLeaveDeduction;
+
+    // 2. خصم المغادرة المبكرة (إذا لم يكن هناك عذر معتمد)
+    if (earlyLeaveMinutes > 0 && !hasApprovedEarlyExcuse) {
+      const earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
+      breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
+      todayDeduction += earlyLeaveDeduction;
     }
-    
-    if (status === AttendanceStatus.ESCAPY && excuses[i].type !== "EARLY_DEPARTURE" && earlyLeaveMinutes > 0 ) {
+
+    // 3. خصم الغياب (إذا لم يكن هناك عذر معتمد للغياب)
+    if (status === 'ABSENT' && !hasApprovedAbsentExcuse) {
+      const absentDeduction = Math.ceil(dailyRate);
+      breakdown.absentDeduction = absentDeduction;
+      todayDeduction += absentDeduction;
+    }
+
+    // 4. خصم الهروب / الانصراف دون إذن
+    if (status === AttendanceStatus.ESCAPY && !hasApprovedEarlyExcuse) {
       const escapyDeduction = Math.ceil(dailyRate);
       breakdown.escapyDeduction = escapyDeduction;
       todayDeduction = Math.max(todayDeduction, escapyDeduction);
     }
-  }
 
     if (todayDeduction === 0) {
       return {

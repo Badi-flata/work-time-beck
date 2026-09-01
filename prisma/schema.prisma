@@ -97,6 +97,8 @@ model EmployeeProfile {
 
   // سجلات الحضور الخاصة بالموظف فقط
   attendances  Attendance[]
+
+  @@index([managerId])
 }
 
 // جدول الأقسام
@@ -151,7 +153,7 @@ model Attendance {
   delayMinutes        Int                @default(0)
   earlyLeaveMinutes   Int                @default(0)
   lateMinutes         Int                @default(0)
-  totalWorkedHours    Int                @default(0)
+  totalWorkedHours    Float              @default(0)
   adminNotes          String?            @db.Text
   employeeNote        String?            @db.Text  // ملاحظات الموظف عند الخروج
 
@@ -163,6 +165,7 @@ model Attendance {
   employeeProfile     EmployeeProfile  @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
 
   @@unique([employeeProfileId, date])
+  @@index([date])
 }
 
 // نموذج الأعذار — لتسجيل أعذار الحضور والانصراف
@@ -179,4 +182,7 @@ model Excuse {
 
   // من قدم العذر
   submittedById   String
+
+  @@index([submittedById])
+  @@index([attendanceId])
 }

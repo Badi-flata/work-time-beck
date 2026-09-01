@@ -72,10 +72,14 @@ export class EmployeeService {
       orderBy: { date: 'asc' } 
     });
      
-    if(!attendances ) new RecordAttendancesEmployeeUndefindExcepion();
+    if (!attendances) throw new RecordAttendancesEmployeeUndefindExcepion();
    
-    const  { summary, days ,rate,label  } =  this.statsHelper.summarizeAttendances(attendances);
-    // const discipline = await this.statsHelper.computeDisciplineRate(user.id, mode,dateAnchor);
+    const expectedWorkingDays = this.statsHelper.calculateExpectedWorkingDays(start, end, {
+      shift: user.shift as any,
+      department: user.department as any,
+    });
+
+    const { summary, days, rate, label } = this.statsHelper.summarizeAttendances(attendances, expectedWorkingDays);
      
     const data = {
       periodLabel:periodLabel,
@@ -87,9 +91,9 @@ export class EmployeeService {
         phone: user.user.phone,
         email: user.user.email,
         salary:user.salary,
-        managerName: user.manager?.user?.fullName || 'لستة مدرج لدئ مدير حالياً ',
-        departmentName: user.department?.name || ' لستةمدرج لدى قسم حالياً ',
-        shift: user.shift?.name || 'لستةمدرج لدى وردية حالياً ',
+        managerName: user.manager?.user?.fullName || 'لست مدرجاً لدى مدير حالياً',
+        departmentName: user.department?.name || 'لست مدرجاً لدى قسم حالياً',
+        shift: user.shift?.name || 'لست مدرجاً لدى وردية حالياً',
       },
       disciplineRate: {
         rate,

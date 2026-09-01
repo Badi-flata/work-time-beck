@@ -26,12 +26,60 @@ export class StatisticsHelperService {
     private calculatePeriod: CalculatePeriodService,
   ) {}
 
+  /**
+   * 0. calculateExpectedWorkingDays — حساب عدد أيام العمل المتوقعة في فترة محددة
+   * مع إمكانية التخصيص واستمداد أيام الإجازة الأسبوعية والعطلات من الوردية (Shift) أو القسم (Department)
+   */
+  calculateExpectedWorkingDays(
+    startDate: Date,
+    endDate?: Date,
+    options?: {
+      shift?: { weekendDays?: number[]; workingDays?: number[] };
+      department?: { weekendDays?: number[]; workingDays?: number[] };
+      customWeekendDays?: number[];
+      customHolidays?: string[];
+    }
+  ): number {
+    const end = endDate ? new Date(endDate) : new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+    // استخراج أيام العطلة الأسبوعية: من الوردية أو القسم أو الخيارات أو الافتراضي (الجمعة 5 والسبت 6)
+    const weekendDays: number[] =
+      options?.customWeekendDays ||
+      options?.shift?.weekendDays ||
+      options?.department?.weekendDays ||
+      [5, 6];
+
+    const holidaysSet = new Set(options?.customHolidays || []);
+
+    let workingDaysCount = 0;
+    const current = new Date(startDate);
+
+    while (current < end) {
+      const dayOfWeek = current.getUTCDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
+      const dateStr = format(current, 'yyyy-MM-dd');
+
+      const isWeekend = weekendDays.includes(dayOfWeek);
+      const isHoliday = holidaysSet.has(dateStr);
+
+      if (!isWeekend && !isHoliday) {
+        workingDaysCount++;
+      }
+
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+
+    return workingDaysCount;
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // 1. summarizeAttendances — الدالة الأساسية لكل الإحصائيات
   // ═══════════════════════════════════════════════════════════════
   // دالة نقية (Pure Function) — لا تستعلم من قاعدة البيانات
   // تأخذ مصفوفة سجلات حضور خام وتُعيد ملخصاً إحصائياً موحداً بتمريرة واحدة O(n)
-  summarizeAttendances(attendances: any[] , shiftName?:string): AttendanceSummary {
+  summarizeAttendances(
+    attendances: any[],
+    expectedWorkingDays?: number,
+    shiftName?: string,
+  ): AttendanceSummary {
     const totalDays = attendances.length;
 
     let onTimeDays  =  0;
@@ -55,17 +103,19 @@ export class StatisticsHelperService {
       const hasLateExcuse = excusesArray.some((e: any) => e.type === "LATE");
       const hasAbsentExcuse = excusesArray.some((e: any) => e.type === "ABSENT");
       const hasEarlyDepartureExcuse = excusesArray.some((e: any) => e.type === "EARLY_DEPARTURE");
+      const hasApprovedExcuse = hasLateExcuse || hasAbsentExcuse || hasEarlyDepartureExcuse;
       const status = a.status;
       let deduction = 0;
 
-      if (status === AttendanceStatus.ON_TIME) {
+      // أولوية التحقق: الأعذار المعتمدة تُصنف كـ EXCUSED قبل الـ LATE
+      if (status === AttendanceStatus.EXCUSED || hasApprovedExcuse) {
+        excusedDays++;
+      } else if (status === AttendanceStatus.ON_TIME) {
         onTimeDays++;
       } else if (status === AttendanceStatus.LATE) {
         lateDays++;
       } else if (status === AttendanceStatus.ABSENT) {
         absentDays++;
-      } else if (status === AttendanceStatus.EXCUSED || hasLateExcuse || hasAbsentExcuse || hasEarlyDepartureExcuse) {
-        excusedDays++;
       } else if (status === AttendanceStatus.ESCAPY) {
         escapedDays++;
       }
@@ -110,9 +160,14 @@ export class StatisticsHelperService {
       });
     }
 
+    // حساب معدل الانضباط: الاعتماد على أيام العمل المتوقعة في المقام
+    const denominator = expectedWorkingDays !== undefined && expectedWorkingDays > 0
+      ? expectedWorkingDays
+      : totalDays;
+
     const rate =
-      totalDays > 0
-        ? Math.round((onTimeDays / totalDays) * 100)
+      denominator > 0
+        ? Math.min(100, Math.round(((onTimeDays + excusedDays) / denominator) * 100))
         : 0;
 
     const label = this.computeDisciplineRating(rate);
@@ -153,19 +208,38 @@ export class StatisticsHelperService {
   ): Promise<DisciplineRate> {
     let startDate: Date;
     let endDate: Date | undefined;
-    let  periodCountDiscipline: string;
+    let periodCountDiscipline: string;
 
     if (typeof modeOrDays === 'number') {
       const now = toZonedTime(Date.now(), TZ);
       startDate = startOfDay(addDays(now, - modeOrDays));
-       periodCountDiscipline = `آخر ${modeOrDays} يوم`;
+      endDate = new Date(now);
+      periodCountDiscipline = `آخر ${modeOrDays} يوم`;
     } else {
       const anchor = dateAnchor || format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
       const period = this.calculatePeriod.calculateMonthlyBoundedPeriod(modeOrDays, anchor);
       startDate = period.startDate;
       endDate = period.endDate;
-       periodCountDiscipline = period.periodLabel;
+      periodCountDiscipline = period.periodLabel;
     }
+
+    // جلب بيانات القسم والوردية الخاصة بالموظف لاستخراج إعدادات أيام العمل والعطلات المخصصة
+    const employeeProfile = await this.prisma.employeeProfile.findUnique({
+      where: { id: employeeProfileId },
+      include: {
+        shift: true,
+        department: true,
+      },
+    });
+
+    const expectedWorkingDays = this.calculateExpectedWorkingDays(
+      startDate,
+      endDate,
+      {
+        shift: employeeProfile?.shift as any,
+        department: employeeProfile?.department as any,
+      }
+    );
 
     const dateFilter: any = { gte: startDate };
     if (endDate) {
@@ -179,7 +253,7 @@ export class StatisticsHelperService {
       },
     });
 
-    const { summary, rate, label } = this.summarizeAttendances(attendances);
+    const { summary, rate, label } = this.summarizeAttendances(attendances, expectedWorkingDays);
     
     let includeSum: any | undefined;
     if (includeSummary) {
@@ -194,7 +268,7 @@ export class StatisticsHelperService {
     return {
       rate,
       label,
-       periodCountDiscipline,
+      periodCountDiscipline,
       includeSum,
     };
   }
@@ -240,11 +314,11 @@ export class StatisticsHelperService {
     }> = [];
 
     let totalRate = 0;
-    let  periodCountDiscipline = '';
+    let periodCountDiscipline = '';
 
     for (const emp of employees) {
       const disc = await this.computeDisciplineRate(emp.id, mode, dateAnchor);
-       periodCountDiscipline = disc.periodCountDiscipline ||  periodCountDiscipline;
+      periodCountDiscipline = disc.periodCountDiscipline || periodCountDiscipline;
       employeeRates.push({
         employeeId: emp.userId,
         name: emp.user.fullName,
@@ -279,6 +353,15 @@ export class StatisticsHelperService {
     const now = toZonedTime(Date.now(), TZ);
     const start = startOfDay(addDays(now, - days));
 
+    const expectedWorkingDays = this.calculateExpectedWorkingDays(
+      start,
+      now,
+      {
+        shift: employeeProfile?.shift as any,
+        department: employeeProfile?.department as any,
+      }
+    );
+
     const attendances = await this.prisma.attendance.findMany({
       where: {
         employeeProfileId: profileId,
@@ -286,7 +369,7 @@ export class StatisticsHelperService {
       },
     });
 
-    const { summary, label, rate } = this.summarizeAttendances(attendances);
+    const { summary, label, rate } = this.summarizeAttendances(attendances, expectedWorkingDays);
 
     let disciplineRate: DisciplineRate | undefined;
     if (options?.includeDiscipline !== false) {
@@ -303,7 +386,7 @@ export class StatisticsHelperService {
       disciplineRate = {
         rate,
         label,
-         periodCountDiscipline: `آخر ${days} يوم`,
+        periodCountDiscipline: `آخر ${days} يوم`,
         includeSum,
       };
     }

@@ -130,10 +130,10 @@ export class AttendanceController {
     @Get("shift")
     getShiftData(
       @CurrentUser('userId') userId: string,
-      @Query('employeeId') employeeId?: string,
       @Query('date') date?: string,
+      @Query('employeeId') employeeId?: string,
     ){
-      return this.attendanceService.fetchSourceData(userId, employeeId,date);
+      return this.attendanceService.fetchSourceData(userId, date ,employeeId);
     }
 
   
