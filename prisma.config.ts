@@ -5,14 +5,30 @@ import "dotenv/config";
 import { defineConfig, env } from "prisma/config";
 
 // استخراج رابط قاعدة البيانات تلقائياً وديناميكياً حسب البيئة
-// سواء في بيئة التطوير المحلية (.env) أو الإنتاج أو النشر السحابي (Railway)
-const getDatabaseUrl = () => {
+// عند النشر أو العمل في الإنتاج/Railway يستخدم رابط الـ Publishing
+// عند التطوير على الجهاز المحلي يستخدم رابط الـ Development
+const getDatabaseUrl = (): string => {
+  const isProd =
+    process.env.NODE_ENV === "production" ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    process.env.RAILWAY_STATIC_URL ||
+    process.argv.includes("deploy") ||
+    process.argv.includes("status");
+
+  if (isProd) {
+    return (
+      process.env.DATABASE_PUBLISH_URL ||
+      process.env.DATABASE_PUBLIC_URL ||
+      process.env.DATABASE_URL ||
+      ""
+    );
+  }
+
+  // في وضع التطوير المحلي:
   return (
+    process.env.DATABASE_DEV_URL ||
     process.env.DATABASE_URL ||
-    process.env.DATABASE_PUBLIC_URL ||
-    process.env.DATABASE_PRIVATE_URL ||
-    process.env.DATABASE_PUBLISH_URL ||
-    env("DATABASE_URL")
+    ""
   );
 };
 
