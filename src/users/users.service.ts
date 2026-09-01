@@ -50,11 +50,14 @@ export class UsersService {
         }}},
       });
     const tokenResult = await this.jwt.generateTokenPair( fullName, Id , Dto.role );
-    return {
-      token: tokenResult.access_token,
-      user: newManager,
-      newManager
-    };
+    return ResponseHelper.created(
+      {
+        token: tokenResult.access_token,
+        refresh_token: tokenResult.refresh_token,
+        user: newManager,
+      },
+      'تم إنشاء حساب المدير بنجاح'
+    );
   }
 
   // أنشاء عامل مع ربط بالقسم و المدير
@@ -106,11 +109,14 @@ export class UsersService {
     });
 
     const tokenResult = await this.jwt.generateTokenPair( fullName, Id , Dto.role );
-    return {
-      token: tokenResult.access_token,
-      user: Employe,
-      Employe
-    };
+    return ResponseHelper.created(
+      {
+        token: tokenResult.access_token,
+        refresh_token: tokenResult.refresh_token,
+        user: Employe,
+      },
+      'تم إنشاء حساب الموظف بنجاح'
+    );
   }
 
 
@@ -134,14 +140,18 @@ export class UsersService {
 
     if(!isValid) throw new InvalidCredentialsException();
    
-    // توليد الـ Access Token 
+    // توليد زوج الرموز (Access Token + Refresh Token)
     const tokenResult = await this.jwt.generateTokenPair( user.fullName , user.id , user.role);
 
-    return {
-      token: tokenResult.access_token,
-      Profile: userProfile,
-      user: user
-    };
+    return ResponseHelper.success(
+      {
+        token: tokenResult.access_token,
+        refresh_token: tokenResult.refresh_token,
+        Profile: userProfile,
+        user: user
+      },
+      'تم تسجيل الدخول بنجاح'
+    );
   }
   
 async getMyProfile(userId: string) {
@@ -363,5 +373,13 @@ async getMyProfile(userId: string) {
     return this.prisma.user.delete({
       where: { id: Id },
     });
+  }
+
+  async refreshToken(refreshToken: string) {
+    return this.jwt.refreshAccessToken(refreshToken);
+  }
+
+  async revokeSessions(userId: string) {
+    return this.jwt.revokeUserSessions(userId);
   }
 }

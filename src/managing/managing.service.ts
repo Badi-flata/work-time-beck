@@ -19,12 +19,14 @@ import { ResponseHelper } from '../core/helpers/response.helper';
 import { Modes } from '../utilities/types/dashboard-registry.types';
 import { WorkersListMeta } from '../core/interfaces/global-response.interface';
 import { DepartmentNotFoundException, ShiftNotFoundException } from 'src/core/domain-exceptions';
+import { UtilitiesService } from '../utilities/utilities.service';
 
 @Injectable()
 export class ManagingService {
   constructor(
     private prisma: PrismaService,
     private statsHelper: StatisticsHelperService,
+    private utilitiesService: UtilitiesService,
   ) { }
 
   /**
@@ -461,5 +463,70 @@ if( !department ||!dto?.departmentId){
     });
 
     return ResponseHelper.success(updated, `تمت نقل الموظف إلى قسم: ${department.name} و الوردية: ${shift.name} بنجاح`);
+  }
+
+  // جلب إعدادات الأتمتة والخصم للمدير
+  async getManagerSettings(managerUserId: string) {
+    const admin = await this.prisma.adminProfile.findUnique({
+      where: { userId: managerUserId },
+      select: {
+        autoCheckoutEnabled: true,
+        dailyDeductionEnabled: true,
+        delayDeductionEnabled: true,
+        earlyLeaveDeductionEnabled: true,
+        deductDelayImmediately: true,
+      },
+    });
+    if (!admin) throw new ManagerProfileNotFoundException();
+    return ResponseHelper.success(admin, 'تم جلب إعدادات المدير بنجاح');
+  }
+
+  // تحديث إعدادات الأتمتة والخصم للمدير
+  async updateManagerSettings(
+    managerUserId: string,
+    dto: {
+      autoCheckoutEnabled?: boolean;
+      dailyDeductionEnabled?: boolean;
+      delayDeductionEnabled?: boolean;
+      earlyLeaveDeductionEnabled?: boolean;
+      deductDelayImmediately?: boolean;
+    },
+  ) {
+    const admin = await this.prisma.adminProfile.findUnique({
+      where: { userId: managerUserId },
+    });
+    if (!admin) throw new ManagerProfileNotFoundException();
+
+    const updated = await this.prisma.adminProfile.update({
+      where: { userId: managerUserId },
+      data: dto,
+      select: {
+        autoCheckoutEnabled: true,
+        dailyDeductionEnabled: true,
+        delayDeductionEnabled: true,
+        earlyLeaveDeductionEnabled: true,
+        deductDelayImmediately: true,
+      },
+    });
+
+    return ResponseHelper.success(updated, 'تم تحديث تفضيلات وإعدادات الأتمتة بنجاح');
+  }
+
+  // دالة المشغل التلقائي الشامل لجميع المدراء (Scheduled Trigger Runner)
+  async triggerScheduledAutomations() {
+    const managers = await this.prisma.adminProfile.findMany({
+      where: { autoCheckoutEnabled: true },
+    });
+
+    const checkoutResults: any[] = [];
+    for (const mgr of managers) {
+      const res = await this.utilitiesService.automaticallyCheck(mgr.userId);
+      checkoutResults.push({ managerId: mgr.userId, ...res });
+    }
+
+    return ResponseHelper.success(
+      checkoutResults,
+      'تم تشغيل الفحص الآلي ومطابقة الورديات بنجاح'
+    );
   }
 }

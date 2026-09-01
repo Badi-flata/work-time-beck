@@ -433,6 +433,19 @@ export class UtilitiesService {
     // عطلة نهاية الأسبوع: الجمعة (5) والسبت (6)
     const isWeekendDay = (dayOfWeek === 5 || dayOfWeek === 6);
 
+    const admin = await this.prisma.adminProfile.findUnique({
+      where: { userId },
+    });
+
+    // إذا كان المدير معطلاً للانصراف التلقائي
+    if (admin && admin.autoCheckoutEnabled === false) {
+      return {
+        processed: 0,
+        results: [],
+        message: 'الانصراف التلقائي معطل حالياً في إعدادات المدير.',
+      };
+    }
+
     const employees = await this.prisma.employeeProfile.findMany({
       where: { managerId: userId },
       include: {
@@ -522,6 +535,12 @@ export class UtilitiesService {
               where: { id: employee.id },
               data: { isWorking: false }
             });
+
+            // تطبيق الخصم اليومي عند الانصراف التلقائي فقط إذا كان خيار الخصم مفعلاً لدى المدير
+            if (admin?.dailyDeductionEnabled && admin?.earlyLeaveDeductionEnabled) {
+              await this.salaryDeductionDaily(employee.id, admin);
+            }
+
             results.push({
               id: attendance.id,
               employeeProfileId: employee.id,
@@ -706,12 +725,14 @@ export class UtilitiesService {
   // ─────────────────────────────────────────────────────────────
   async salaryDeductionDaily(
     employeeId: string,
+    customAdminPreferences?: any,
   ): Promise<{ deducted: number; newTotalDeduction: number; breakdown: Record<string, number> }> {
     const today = startOfDay(toZonedTime(Date.now(), TZ));
 
     const employee: any = await this.prisma.employeeProfile.findUnique({
       where: { id: employeeId },
       include: {
+        manager: true,
         attendances: {
           where: { date: today },
           include: { excuses: true },
@@ -720,6 +741,21 @@ export class UtilitiesService {
     });
 
     if (!employee) throw new NotFoundException('لم يتم العثور على ملف الموظف');
+
+    const admin = customAdminPreferences || employee.manager || {
+      dailyDeductionEnabled: true,
+      delayDeductionEnabled: true,
+      earlyLeaveDeductionEnabled: true,
+    };
+
+    // إذا كان الخصم اليومي معطلاً بالكامل لدى المدير
+    if (admin.dailyDeductionEnabled === false) {
+      return {
+        deducted: 0,
+        newTotalDeduction: employee.attendances?.[0]?.salaryDeduction ?? 0,
+        breakdown: { 'خصم الراتب اليومي معطل في إعدادات المدير': 0 },
+      };
+    }
 
     const todayAttendance = employee.attendances?.[0] ?? null;
     if (!todayAttendance) {
@@ -744,29 +780,29 @@ export class UtilitiesService {
     const breakdown: Record<string, number> = {};
     let todayDeduction = 0;
 
-    // 1. خصم التأخير (إذا لم يكن هناك عذر معتمد للتأخير)
-    if (status === 'LATE' && delayMinutes > 0 && !hasApprovedLateExcuse) {
+    // 1. خصم التأخير (يُطبق فقط إذا كان delayDeductionEnabled مفعلاً)
+    if (admin.delayDeductionEnabled !== false && status === 'LATE' && delayMinutes > 0 && !hasApprovedLateExcuse) {
       const lateDeduction = Math.ceil(delayMinutes * minuteRate);
       breakdown.lateDeduction = lateDeduction;
       todayDeduction += lateDeduction;
     }
 
-    // 2. خصم المغادرة المبكرة (إذا لم يكن هناك عذر معتمد)
-    if (earlyLeaveMinutes > 0 && !hasApprovedEarlyExcuse) {
+    // 2. خصم المغادرة المبكرة (يُطبق فقط إذا كان earlyLeaveDeductionEnabled مفعلاً)
+    if (admin.earlyLeaveDeductionEnabled !== false && earlyLeaveMinutes > 0 && !hasApprovedEarlyExcuse) {
       const earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
       breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
       todayDeduction += earlyLeaveDeduction;
     }
 
-    // 3. خصم الغياب (إذا لم يكن هناك عذر معتمد للغياب)
+    // 3. خصم الغياب
     if (status === 'ABSENT' && !hasApprovedAbsentExcuse) {
       const absentDeduction = Math.ceil(dailyRate);
       breakdown.absentDeduction = absentDeduction;
       todayDeduction += absentDeduction;
     }
 
-    // 4. خصم الهروب / الانصراف دون إذن
-    if (status === AttendanceStatus.ESCAPY && !hasApprovedEarlyExcuse) {
+    // 4. خصم الهروب / الانصراف دون إذن (يُطبق إذا كان earlyLeaveDeductionEnabled مفعلاً)
+    if (admin.earlyLeaveDeductionEnabled !== false && status === AttendanceStatus.ESCAPY && !hasApprovedEarlyExcuse) {
       const escapyDeduction = Math.ceil(dailyRate);
       breakdown.escapyDeduction = escapyDeduction;
       todayDeduction = Math.max(todayDeduction, escapyDeduction);

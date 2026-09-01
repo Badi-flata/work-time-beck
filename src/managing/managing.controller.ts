@@ -231,4 +231,31 @@ export class ManagingController {
   applySalaryDeduction(@Param('employeeId') employeeId: string) {
     return this.utility.salaryDeductionDaily(employeeId);
   }
+
+  // ─── إعدادات الأتمتة والخصم للمدير ──────────────────────────
+  @Get('settings')
+  getManagerSettings(@CurrentUser('userId') userId: string) {
+    return this.managingService.getManagerSettings(userId);
+  }
+
+  @Patch('settings')
+  updateManagerSettings(
+    @CurrentUser('userId') userId: string,
+    @Body()
+    dto: {
+      autoCheckoutEnabled?: boolean;
+      dailyDeductionEnabled?: boolean;
+      delayDeductionEnabled?: boolean;
+      earlyLeaveDeductionEnabled?: boolean;
+      deductDelayImmediately?: boolean;
+    },
+  ) {
+    return this.managingService.updateManagerSettings(userId, dto);
+  }
+
+  // تشغيل الأتمتة المجدولة لجميع المدراء
+  @Post('trigger-scheduled-automations')
+  triggerScheduledAutomations() {
+    return this.managingService.triggerScheduledAutomations();
+  }
 }

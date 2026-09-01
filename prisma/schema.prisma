@@ -54,6 +54,7 @@ model User {
   // علاقات الامتداد (1-to-1 العلاقات)
   employeeProfile EmployeeProfile? // يمتد هنا إذا كان موظفاً
   adminProfile    AdminProfile?    // يمتد هنا إذا كان مديراً
+  refreshSessions RefreshSession[] // جلسات التجديد
 }
 
 // جديد: جدول ملف المدير (مفصول تماماً عن تعقيدات الحضور)
@@ -64,12 +65,32 @@ model AdminProfile {
   userId         String           @unique
   user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // تفضيلات الأتمتة والخصم القابلة للتخصيص
+  autoCheckoutEnabled       Boolean @default(true)
+  dailyDeductionEnabled     Boolean @default(true) // تفعيل/تعطيل خصم الراتب اليومي بالكامل
+  delayDeductionEnabled     Boolean @default(true) // تفعيل/تعطيل خصم التأخير عن الحضور
+  earlyLeaveDeductionEnabled Boolean @default(true) // تفعيل/تعطيل خصم الخروج المبكر / الهروب
+  deductDelayImmediately    Boolean @default(false) // خصم التأخير فور انتهاء فترة السماح بدل نهاية اليوم
+
   // العلاقات الإدارية:
   // المدير يدير أقساماً معينة
   managedDepartments Department[]
   
   // المدير يشرف على موظفين محددين بشكل مباشر (اختياري)
   subordinates       EmployeeProfile[]
+}
+
+// جدول تتبع جلسات الـ Refresh Tokens ومنع إعادة الاستخدام
+model RefreshSession {
+  id          String   @id @default(uuid())
+  tokenHash   String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isRevoked   Boolean  @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
 }
 
 // جدول ملف الموظف (مخصص لمتابعة العمل والحضور والورديات)

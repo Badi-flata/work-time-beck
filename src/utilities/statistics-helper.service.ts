@@ -303,8 +303,52 @@ export class StatisticsHelperService {
       where: whereClause,
       include: {
         user: { select: { fullName: true } },
+        shift: true,
+        department: true,
       },
     });
+
+    if (employees.length === 0) {
+      return {
+        organizationRate: 0,
+        organizationLabel: 'NEEDS_IMPROVEMENT' as DisciplineRating,
+        periodCountDiscipline: '',
+        employeeRates: [],
+      };
+    }
+
+    const anchor = dateAnchor || format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+    const period = this.calculatePeriod.calculateMonthlyBoundedPeriod(mode, anchor);
+    const startDate = period.startDate;
+    const endDate = period.endDate;
+    const periodCountDiscipline = period.periodLabel;
+
+    const dateFilter: any = { gte: startDate };
+    if (endDate) {
+      dateFilter.lt = endDate;
+    }
+
+    const employeeIds = employees.map((e) => e.id);
+
+    // استعلام مجمع واحد لجميع سجلات حضور الفترة لجميع الموظفين (حل N+1 Query)
+    const allAttendances = await this.prisma.attendance.findMany({
+      where: {
+        employeeProfileId: { in: employeeIds },
+        date: dateFilter,
+      },
+      include: {
+        excuses: true,
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    // تجميع السجلات حسب employeeProfileId في الذاكرة
+    const attendanceMap = new Map<string, any[]>();
+    for (const att of allAttendances) {
+      const list = attendanceMap.get(att.employeeProfileId) || [];
+      list.push(att);
+      attendanceMap.set(att.employeeProfileId, list);
+    }
 
     const employeeRates: Array<{
       employeeId: string;
@@ -314,18 +358,27 @@ export class StatisticsHelperService {
     }> = [];
 
     let totalRate = 0;
-    let periodCountDiscipline = '';
 
     for (const emp of employees) {
-      const disc = await this.computeDisciplineRate(emp.id, mode, dateAnchor);
-      periodCountDiscipline = disc.periodCountDiscipline || periodCountDiscipline;
+      const empAttendances = attendanceMap.get(emp.id) || [];
+      const expectedWorkingDays = this.calculateExpectedWorkingDays(
+        startDate,
+        endDate,
+        {
+          shift: emp.shift as any,
+          department: emp.department as any,
+        }
+      );
+
+      const { rate, label } = this.summarizeAttendances(empAttendances, expectedWorkingDays);
+
       employeeRates.push({
         employeeId: emp.userId,
         name: emp.user.fullName,
-        rate: disc.rate,
-        label: disc.label as DisciplineRating,
+        rate,
+        label: label as DisciplineRating,
       });
-      totalRate += disc.rate;
+      totalRate += rate;
     }
 
     const organizationRate = employees.length > 0 ? Math.round(totalRate / employees.length) : 0;

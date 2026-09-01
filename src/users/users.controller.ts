@@ -24,6 +24,7 @@ import { Role } from '@prisma/client';
 import { Auth } from '../core/decorators/global.auth.decorator';
 import { Public } from './../core/decorators/Public.decorator';
 import { CurrentUser } from './../core/decorators/current-user.decorator';
+import { ResponseHelper } from '../core/helpers/response.helper';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -83,6 +84,21 @@ export class UsersController {
   loginIn(@Body() body: any) {
     const password = body.passwordHash || body.password;
     return this.usersService.loginIn(password, body.email);
+  }
+
+  @Public()
+  @Post('refresh-token')
+  @ApiOperation({ summary: 'تجديد الـ Access Token باستخدام الـ Refresh Token' })
+  async refreshToken(@Body('refresh_token') refreshToken: string) {
+    const result = await this.usersService.refreshToken(refreshToken);
+    return ResponseHelper.success(result, 'تم تجديد رمز الوصول بنجاح');
+  }
+
+  @Post('logout')
+  @ApiOperation({ summary: 'تسجيل الخروج وإبطال جميع جلسات التجديد' })
+  async logout(@CurrentUser('userId') userId: string) {
+    const result = await this.usersService.revokeSessions(userId);
+    return ResponseHelper.success(result, 'تم تسجيل الخروج وإبطال الجلسات بنجاح');
   }
 
   @Get('profile')

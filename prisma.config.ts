@@ -4,11 +4,17 @@
 import "dotenv/config";
 import { defineConfig, env } from "prisma/config";
 
-// Check if the current command is for deployment/migration deploy
-const isDeploy = process.argv.includes("deploy") || process.argv.includes("status");
-
-// const databaseUrl = (isDeploy && (process.env.DATABASE_PUBLISH_URL || process.env.DATABASE_PUBLIC_URL))
-//   || env("DATABASE_URL");
+// استخراج رابط قاعدة البيانات تلقائياً وديناميكياً حسب البيئة
+// سواء في بيئة التطوير المحلية (.env) أو الإنتاج أو النشر السحابي (Railway)
+const getDatabaseUrl = () => {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.DATABASE_PUBLIC_URL ||
+    process.env.DATABASE_PRIVATE_URL ||
+    process.env.DATABASE_PUBLISH_URL ||
+    env("DATABASE_URL")
+  );
+};
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -17,6 +23,6 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: env("DATABASE_URL"),
+    url: getDatabaseUrl(),
   },
 });
