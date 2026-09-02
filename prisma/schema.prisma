@@ -67,10 +67,13 @@ model AdminProfile {
 
   // تفضيلات الأتمتة والخصم القابلة للتخصيص
   autoCheckoutEnabled       Boolean @default(true)
-  dailyDeductionEnabled     Boolean @default(true) // تفعيل/تعطيل خصم الراتب اليومي بالكامل
+
+  isActiveDeduction    Boolean @default(false) // تفعيل/تعطيل خصم الراتب اليومي بالكامل
+  //  customizing deductions  
+  combineDeductionsOnEndShift    Boolean @default(false) // تفعيل/تعطيل خصم الراتب اليومي بالكامل
   delayDeductionEnabled     Boolean @default(true) // تفعيل/تعطيل خصم التأخير عن الحضور
   earlyLeaveDeductionEnabled Boolean @default(true) // تفعيل/تعطيل خصم الخروج المبكر / الهروب
-  deductDelayImmediately    Boolean @default(false) // خصم التأخير فور انتهاء فترة السماح بدل نهاية اليوم
+  absentDeductionEnabled    Boolean @default(true) // خصم التأخير فور انتهاء فترة السماح بدل نهاية اليوم
 
   // العلاقات الإدارية:
   // المدير يدير أقساماً معينة

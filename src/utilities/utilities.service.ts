@@ -520,7 +520,8 @@ export class UtilitiesService {
               employeeProfileId: employee.id,
               outcome: 'EXCUSED_AUTO_OUT',
             });
-          } else {
+          } 
+          else {
             await this.prisma.attendance.update({
               where: { id: attendance.id },
               data: {
@@ -537,8 +538,16 @@ export class UtilitiesService {
             });
 
             // تطبيق الخصم اليومي عند الانصراف التلقائي فقط إذا كان خيار الخصم مفعلاً لدى المدير
-            if (admin?.dailyDeductionEnabled && admin?.earlyLeaveDeductionEnabled) {
-              await this.salaryDeductionDaily(employee.id, admin);
+            if (admin?.isActiveDeduction && admin?.earlyLeaveDeductionEnabled) {
+              await this.salaryDeductionDaily(employee.id,
+                 {
+                  autoCheckoutEnabled:admin?.autoCheckoutEnabled,
+                  isActiveDeduction:admin?.isActiveDeduction,
+                  combineDeductionsOnEndShift:admin?.combineDeductionsOnEndShift,
+                  earlyLeaveDeductionEnabled:admin?.earlyLeaveDeductionEnabled,
+                  delayDeductionEnabled:admin.delayDeductionEnabled,
+                  absentDeductionEnabled:admin?.absentDeductionEnabled,
+                });
             }
 
             results.push({
@@ -569,7 +578,17 @@ export class UtilitiesService {
             adminNotes: 'غياب تلقائي - لم يسجل حضور اليوم',
           }
         });
-
+          if (admin?.isActiveDeduction && admin?.absentDeductionEnabled) {
+              await this.salaryDeductionDaily(employee.id,
+                 {
+                  autoCheckoutEnabled:admin?.autoCheckoutEnabled,
+                  isActiveDeduction:admin?.isActiveDeduction,
+                  combineDeductionsOnEndShift:admin?.combineDeductionsOnEndShift,
+                  earlyLeaveDeductionEnabled:admin?.earlyLeaveDeductionEnabled,
+                  delayDeductionEnabled:admin.delayDeductionEnabled,
+                  absentDeductionEnabled:admin?.absentDeductionEnabled,
+                });
+            }
         results.push({
           id: newAttendance.id,
           employeeProfileId: employee.id,
@@ -706,6 +725,7 @@ export class UtilitiesService {
         );
       }
 
+
       return {
         data: enrichedResults,
         meta: {
@@ -725,7 +745,14 @@ export class UtilitiesService {
   // ─────────────────────────────────────────────────────────────
   async salaryDeductionDaily(
     employeeId: string,
-    customAdminPreferences?: any,
+    customAdminPreferences?:  {
+      autoCheckoutEnabled?: boolean;
+      isActiveDeduction?: boolean;
+      combineDeductionsOnEndShift?: boolean;
+      delayDeductionEnabled?: boolean;
+      earlyLeaveDeductionEnabled?: boolean;
+      absentDeductionEnabled?:boolean;
+    },
   ): Promise<{ deducted: number; newTotalDeduction: number; breakdown: Record<string, number> }> {
     const today = startOfDay(toZonedTime(Date.now(), TZ));
 
@@ -742,14 +769,16 @@ export class UtilitiesService {
 
     if (!employee) throw new NotFoundException('لم يتم العثور على ملف الموظف');
 
-    const admin = customAdminPreferences || employee.manager || {
-      dailyDeductionEnabled: true,
+    const admin = customAdminPreferences || employee?.manager || {
+      isActiveDeduction: true,
+      combineDeductionsOnEndShift: true,
       delayDeductionEnabled: true,
       earlyLeaveDeductionEnabled: true,
+      absentDeductionEnabled: true,
     };
 
     // إذا كان الخصم اليومي معطلاً بالكامل لدى المدير
-    if (admin.dailyDeductionEnabled === false) {
+    if (admin.isActiveDeduction === false) {
       return {
         deducted: 0,
         newTotalDeduction: employee.attendances?.[0]?.salaryDeduction ?? 0,
@@ -780,33 +809,64 @@ export class UtilitiesService {
     const breakdown: Record<string, number> = {};
     let todayDeduction = 0;
 
+    // combine deductions on end shift
+    if(admin.combineDeductionsOnEndShift === true && !hasApprovedAbsentExcuse && !hasApprovedEarlyExcuse && !hasApprovedLateExcuse){
+    //  combine between late and early leave deductions
+      if( admin.delayDeductionEnabled === true && delayMinutes >0
+       && admin.earlyLeaveDeductionEnabled === true  && status ==="ESCAPY"  ){
+      // late
+        const lateDeduction = delayMinutes >0 ? Math.ceil(delayMinutes * minuteRate):0;
+        breakdown.lateDeduction = lateDeduction;
+        
+        //  early leave
+        const earlyLeaveDeduction = earlyLeaveMinutes> 0? Math.ceil(earlyLeaveMinutes * minuteRate):0
+        breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
+
+        todayDeduction += (lateDeduction + earlyLeaveDeduction);
+      }
+      //  absent deduction only
+      if(admin.absentDeductionEnabled === true && status === 'ABSENT'){
+        const absentDeduction = Math.ceil(dailyRate);
+        breakdown.absentDeduction = absentDeduction;
+        todayDeduction += absentDeduction;
+      }
+      //  early leave deduction only
+      if(admin.delayDeductionEnabled === true  && status === 'ESCAPY'  ){
+      const earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
+      breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
+      todayDeduction += earlyLeaveDeduction;
+      }
+      //  late deduction only
+      if(admin.delayDeductionEnabled === true && status === 'LATE' && delayMinutes > 0 ){
+      const lateDeduction = Math.ceil(delayMinutes * minuteRate);
+      breakdown.lateDeduction = lateDeduction;
+      todayDeduction += lateDeduction;
+      }
+
+    }
+
     // 1. خصم التأخير (يُطبق فقط إذا كان delayDeductionEnabled مفعلاً)
-    if (admin.delayDeductionEnabled !== false && status === 'LATE' && delayMinutes > 0 && !hasApprovedLateExcuse) {
+    if (admin.combineDeductionsOnEndShift === false && admin.delayDeductionEnabled === true && status === 'LATE' && delayMinutes > 0 && !hasApprovedLateExcuse) {
       const lateDeduction = Math.ceil(delayMinutes * minuteRate);
       breakdown.lateDeduction = lateDeduction;
       todayDeduction += lateDeduction;
     }
+    
 
     // 2. خصم المغادرة المبكرة (يُطبق فقط إذا كان earlyLeaveDeductionEnabled مفعلاً)
-    if (admin.earlyLeaveDeductionEnabled !== false && earlyLeaveMinutes > 0 && !hasApprovedEarlyExcuse) {
+    if (admin.combineDeductionsOnEndShift === false && admin.earlyLeaveDeductionEnabled !== false && status === "ESCAPY" && earlyLeaveMinutes > 0 && !hasApprovedEarlyExcuse) {
       const earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
       breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
       todayDeduction += earlyLeaveDeduction;
     }
 
     // 3. خصم الغياب
-    if (status === 'ABSENT' && !hasApprovedAbsentExcuse) {
+    if (admin.combineDeductionsOnEndShift === false && admin.absentDeductionEnabled === true &&status === 'ABSENT' && !hasApprovedAbsentExcuse) {
       const absentDeduction = Math.ceil(dailyRate);
       breakdown.absentDeduction = absentDeduction;
       todayDeduction += absentDeduction;
     }
 
-    // 4. خصم الهروب / الانصراف دون إذن (يُطبق إذا كان earlyLeaveDeductionEnabled مفعلاً)
-    if (admin.earlyLeaveDeductionEnabled !== false && status === AttendanceStatus.ESCAPY && !hasApprovedEarlyExcuse) {
-      const escapyDeduction = Math.ceil(dailyRate);
-      breakdown.escapyDeduction = escapyDeduction;
-      todayDeduction = Math.max(todayDeduction, escapyDeduction);
-    }
 
     if (todayDeduction === 0) {
       return {

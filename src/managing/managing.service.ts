@@ -18,7 +18,7 @@ import {
 import { ResponseHelper } from '../core/helpers/response.helper';
 import { Modes } from '../utilities/types/dashboard-registry.types';
 import { WorkersListMeta } from '../core/interfaces/global-response.interface';
-import { DepartmentNotFoundException, ShiftNotFoundException } from 'src/core/domain-exceptions';
+import { DepartmentNotFoundException, ShiftNotFoundException } from '../core/domain-exceptions';
 import { UtilitiesService } from '../utilities/utilities.service';
 
 @Injectable()
@@ -471,10 +471,11 @@ if( !department ||!dto?.departmentId){
       where: { userId: managerUserId },
       select: {
         autoCheckoutEnabled: true,
-        dailyDeductionEnabled: true,
+        isActiveDeduction: true,
+        combineDeductionsOnEndShift: true,
         delayDeductionEnabled: true,
         earlyLeaveDeductionEnabled: true,
-        deductDelayImmediately: true,
+        absentDeductionEnabled:true,
       },
     });
     if (!admin) throw new ManagerProfileNotFoundException();
@@ -486,10 +487,11 @@ if( !department ||!dto?.departmentId){
     managerUserId: string,
     dto: {
       autoCheckoutEnabled?: boolean;
-      dailyDeductionEnabled?: boolean;
+      isActiveDeduction?: boolean;
+      combineDeductionsOnEndShift?: boolean;
       delayDeductionEnabled?: boolean;
       earlyLeaveDeductionEnabled?: boolean;
-      deductDelayImmediately?: boolean;
+      absentDeductionEnabled?:boolean;
     },
   ) {
     const admin = await this.prisma.adminProfile.findUnique({
@@ -502,10 +504,11 @@ if( !department ||!dto?.departmentId){
       data: dto,
       select: {
         autoCheckoutEnabled: true,
-        dailyDeductionEnabled: true,
+        combineDeductionsOnEndShift: true,
         delayDeductionEnabled: true,
         earlyLeaveDeductionEnabled: true,
-        deductDelayImmediately: true,
+        isActiveDeduction: true,
+        absentDeductionEnabled:true,
       },
     });
 

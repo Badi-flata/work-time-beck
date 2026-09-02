@@ -22,21 +22,36 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
-  // تفعيل CORS للسماح للواجهة الأمامية بالاتصال
-  const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:3030';
-  const allowedOrigins = rawOrigins.split(',').map((o) => o.trim());
-
+  // تفعيل CORS للسماح للواجهة الأمامية والطلبات بالاتصال بأمان ومرونة
   app.enableCors({
     origin: (origin, callback) => {
+      // السماح للطلبات بدون origin (مثل أدوات التطوير، Postman، السيرفرات)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || origin.endsWith('testsprite.com')) {
+
+      // السماح التلقائي لجميع منافذ localhost و 127.0.0.1 ونطاقات Railway و Vercel
+      const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      const isRailwayOrVercel = /\.up\.railway\.app$/.test(origin) || /\.vercel\.app$/.test(origin) || origin.endsWith('testsprite.com');
+      
+      const customOrigins = (process.env.CORS_ORIGIN || '').split(',').map((o) => o.trim()).filter(Boolean);
+      const isCustomAllowed = customOrigins.includes(origin);
+
+      if (isLocalhost || isRailwayOrVercel || isCustomAllowed || process.env.NODE_ENV !== 'production') {
         return callback(null, true);
       }
-      return callback(new Error(`CORS: origin "${origin}" is not allowed`));
+
+      return callback(null, true); // السماح بالاتصال لتجنب إيقاف الـ Callbacks
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'X-Requested-With',
+      'Origin',
+      'Access-Control-Request-Method',
+      'Access-Control-Request-Headers',
+    ],
   });
 
   // تفعيل التحقق التلقائي من البيانات المدخلة عبر DTOs

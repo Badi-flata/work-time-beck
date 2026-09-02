@@ -45,14 +45,21 @@ export class AttendanceService {
          select: {
            id: true,
            userId: true,
-           manager: { select: { user: { select: { fullName: true } } } },
+           manager: { select: {
+            autoCheckoutEnabled:true,
+            isActiveDeduction:true,
+            combineDeductionsOnEndShift:true,
+            delayDeductionEnabled:true,
+            earlyLeaveDeductionEnabled:true,
+            absentDeductionEnabled:true,
+            user: { select: { fullName: true } } } },
            department: { select: { name: true } }
          }
        });
        if (!employee) {
          throw new NotFoundException('لم يتم العثور على الموظف');
        }
-      
+      const admin = employee.manager
        const fullName = employee.manager?.user?.fullName;
        const departmentName = employee.department?.name;
 
@@ -186,6 +193,20 @@ export class AttendanceService {
            data: { attendanceId: record.id }
          });
        }
+
+       if (admin?.isActiveDeduction === true && admin?.delayDeductionEnabled === true
+         && admin.combineDeductionsOnEndShift === false && status === AttendanceStatus.LATE && !Excused
+       ) {
+              await this.utiltie.salaryDeductionDaily(employee.id,
+                 {
+                  autoCheckoutEnabled:admin?.autoCheckoutEnabled,
+                  isActiveDeduction:admin?.isActiveDeduction,
+                  combineDeductionsOnEndShift:admin?.combineDeductionsOnEndShift,
+                  earlyLeaveDeductionEnabled:admin?.earlyLeaveDeductionEnabled,
+                  delayDeductionEnabled:admin.delayDeductionEnabled,
+                  absentDeductionEnabled:admin?.absentDeductionEnabled,
+                });
+            }
 
        return ResponseHelper.success(
          {
@@ -478,9 +499,9 @@ export class AttendanceService {
         };
 
         return ResponseHelper.success(
-          data,
-          `تم جلب البيانات الاولية لسجيل الحضور بنجاح, ${attendReport ? "مع سجل الحضور لليوم" : "مامن سجل حضور لليوم"}`
-        );
+         { data,
+          message:` تم جلب البيانات الاولية لسجيل الحضور بنجاح,  ${attendReport ? "مع سجل الحضور لليوم" : " تنويه:مامن سجل حضور لليوم حتى الأن"}`
+       },'success' );
       }
 
      // ─────────────────────────────────────────────────────────────

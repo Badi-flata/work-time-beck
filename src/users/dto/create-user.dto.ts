@@ -30,10 +30,6 @@ export class CreateUserDto {
     @IsOptional()
     phone?: string; 
 
-    @ApiProperty({ description: 'اسم القسم الذي ينتمي إليه الموظف', example: 'الموارد البشرية' })
-    @IsString()
-    @IsNotEmpty()
-    departmentName: string; 
 
     @ApiProperty({ description: 'المسمى الوظيفي للموظف', example: 'مهندس برمجيات' })
     @IsString()

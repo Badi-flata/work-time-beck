@@ -7,13 +7,13 @@ import { Prisma ,Role } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import * as bcrypt    from 'bcrypt';
 import { UtilitiesService } from '../utilities/utilities.service';
-import { StatisticsHelperService } from 'src/utilities/statistics-helper.service';
+import { StatisticsHelperService } from '../utilities/statistics-helper.service';
 import { InvalidCredentialsException, InsufficientPermissionsException } from '../core/domain-exceptions/auth.exceptions';
 import { DepartmentNotFoundException } from '../core/domain-exceptions/department.exceptions';
 import { ShiftNotFoundException } from '../core/domain-exceptions/shift.exceptions';
 import { NoFileProvidedException } from '../core/domain-exceptions/upload.exceptions';
 import { ResponseHelper } from '../core/helpers/response.helper';
-import { Modes } from 'src/utilities/types/dashboard-registry.types';
+import { Modes } from '../utilities/types/dashboard-registry.types';
 import { UploadedFilePayload } from '../core/interfaces/global-response.interface';
 
 @Injectable()
@@ -65,23 +65,7 @@ export class UsersService {
     if(Dto.role !== Role.EMPLOYEE) {
       throw new BadRequestException('عذراً، يجب أن يكون دور المستخدم موظف/عامل (EMPLOYEE).');
     }
-    let depId: any = null;
-    if (Dto.departmentName) {
-      depId = await this.prisma.department.findUnique({
-        where: { name: Dto.departmentName },
-        include: { shift: { select: { id: true } } }
-      });
-      if (!depId) {
-        throw new NotFoundException(`القسم المحدد (${Dto.departmentName}) غير موجود في النظام.`);
-      }
-    } else {
-      depId = await this.prisma.department.findFirst({
-        include: { shift: { select: { id: true } } }
-      });
-      if (!depId) {
-        throw new NotFoundException('لا يوجد أي قسم في النظام حالياً لربط الموظف به.');
-      }
-    }
+   
 
     const Id = randomUUID();
 
@@ -100,8 +84,8 @@ export class UsersService {
         employeeProfile:{
           create:{
             id:Id,
-            departmentId:depId.id,
-            shiftId:depId.shift[0]?.id,
+            departmentId:null,
+            shiftId:null,
             managerId:null
           }
         }
@@ -337,7 +321,7 @@ async getMyProfile(userId: string) {
     );
   }
 
-  async search(search: string, page = 1, limit = 10, role?: string, discipline = false) {
+  async search(search: string, page:number , limit:number , role?: string, discipline = false) {
     return this.utilities.searchUsers(search, page, limit, role, discipline);
   }
 

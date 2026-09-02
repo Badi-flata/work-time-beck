@@ -9,7 +9,7 @@ import { Modes } from '../utilities/types/dashboard-registry.types';
 import { EmployeeProfileNotFoundException, RecordAttendancesEmployeeUndefindExcepion } from '../core/domain-exceptions/employee.exceptions';
 import { ManagerProfileNotFoundException } from '../core/domain-exceptions/department.exceptions';
 import { ResponseHelper } from '../core/helpers/response.helper';
-import { CalculatePeriodService } from 'src/utilities/calculate-period.service';
+import { CalculatePeriodService } from '../utilities/calculate-period.service';
 import { Role } from '@prisma/client';
 
 const TZ = 'Asia/Riyadh';

@@ -64,7 +64,10 @@ export class UsersController {
   @ApiBody({ type: CreateUserDto })
   createManager(@Body() body: any) {
     if (!body.fullName) {
-      body.fullName = 'User';
+      body.fullName = body.name || 'User';
+    }
+    if (!body.departmentName && body.department) {
+      body.departmentName = body.department;
     }
     if (!body.passwordHash) {
       body.passwordHash = body.password;
