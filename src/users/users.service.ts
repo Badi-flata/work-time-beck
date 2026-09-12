@@ -285,15 +285,25 @@ async getMyProfile(userId: string) {
   /**
    * رفع وحفظ الصورة الشخصية للمستخدم وتحديث قاعدة البيانات
    */
-  async uploadAvatar(userId: string, file: UploadedFilePayload) {
+  async uploadAvatar(userId: string, file: UploadedFilePayload ,role:string) {
     if (!file) {
       throw new NoFileProvidedException();
     }
 
     const relativePath = `/uploads/avatars/${file.filename}`;
-
+    console.log("role:",role)
+    
+   const isAdmin = role ==="MANAGER" ||role === "SUPER_ADMIN"
+    const profileId =isAdmin? await this.prisma.adminProfile.findUnique({
+      where:{id:userId},
+     
+    }):
+     await this.prisma.employeeProfile.findUnique({
+      where:{id:userId},
+    
+    });
     const updatedUser = await this.prisma.user.update({
-      where: { id: userId },
+      where: { id: profileId?.userId },
       data: { imageProfile: relativePath },
       select: {
         id: true,
@@ -318,9 +328,19 @@ async getMyProfile(userId: string) {
   /**
    * تحديث رابط الصورة الشخصية مباشرة
    */
-  async updateAvatar(userId: string, imageProfile: string) {
+  async updateAvatar(userId: string, imageProfile: string , role:string) {
+    console.log("role:",role)
+    const isAdmin = role ==="MANAGER" ||role === "SUPER_ADMIN"
+    const profileId =isAdmin? await this.prisma.adminProfile.findUnique({
+      where:{id:userId},
+     
+    }):
+     await this.prisma.employeeProfile.findUnique({
+      where:{id:userId},
+    
+    });
     const updatedUser = await this.prisma.user.update({
-      where: { id: userId },
+      where: { id: profileId?.userId },
       data: { imageProfile },
       select: {
         id: true,

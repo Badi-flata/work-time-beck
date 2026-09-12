@@ -198,21 +198,23 @@ export class UsersController {
   )
   uploadAvatar(
     @CurrentUser('userId') userId: string,
+    @CurrentUser('role') role: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) {
       throw new NoFileProvidedException();
     }
-    return this.usersService.uploadAvatar(userId, file);
+    return this.usersService.uploadAvatar(userId, file ,role) ;
   }
 
   @Patch('update-avatar')
   @ApiOperation({ summary: 'تحديث رابط الصورة الشخصية للمستخدم مباشرة' })
   updateAvatar(
     @CurrentUser('userId') userId: string,
+    @CurrentUser('role') role: string,
     @Body() dto: UpdateAvatarDto,
   ) {
-    return this.usersService.updateAvatar(userId, dto.imageProfile);
+    return this.usersService.updateAvatar(userId, dto.imageProfile,role);
   }
 
   @Delete('delete-my-profile')
