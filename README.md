@@ -5,7 +5,7 @@
 <h1 align="center">WorkTime — Backend API</h1>
 
 <p align="center">
-  A robust, production-ready <strong>Attendance & Workforce Management</strong> REST API built with <strong>NestJS</strong>, <strong>Prisma ORM</strong>, and <strong>PostgreSQL</strong>.
+  A robust, enterprise-ready <strong>Attendance & Workforce Management</strong> REST API built with <strong>NestJS</strong>, <strong>Prisma ORM</strong>, and <strong>PostgreSQL</strong>.
 </p>
 
 <p align="center">
@@ -15,6 +15,7 @@
   <a href="#getting-started">Getting Started</a> •
   <a href="#api-reference">API Reference</a> •
   <a href="#database-schema">Database Schema</a> •
+  <a href="#release-history">Release History</a> •
   <a href="#license">License</a>
 </p>
 
@@ -22,48 +23,51 @@
 
 ## Overview
 
-**WorkTime Backend** is the server-side engine for a comprehensive employee attendance and departure tracking system. It provides a clean, well-structured API that powers both web and mobile frontends, enabling HR managers to monitor workforce productivity, manage shifts and departments, process excuses, and generate detailed attendance reports — all in real-time.
+**WorkTime Backend** is the server-side engine for a comprehensive employee attendance, departure tracking, and workforce analytics platform. It provides a clean, modular, and performant REST API powering web and mobile frontends.
+
+The platform enables organization administrators and department managers to oversee workforce productivity, manage departments and custom shifts, process employee excuses, track granular salary deductions, run interactive demo shifts, and generate real-time periodic reports.
 
 ---
 
 ## Features
 
-### 🔐 Authentication & Authorization
-- **JWT-based authentication** with role-based access control (`SUPER_ADMIN` / `EMPLOYEE`)
-- **bcrypt password hashing** (10 salt rounds) for secure credential storage
-- Custom decorators: `@Auth()`, `@CurrentUser()`, `@Public()` for clean route protection
-- Global `ValidationPipe` with `whitelist` + `forbidNonWhitelisted` to reject unknown fields
+### 🔐 Authentication & Session Security
+- **JWT Authentication** with dual-token architecture (Access Token + Refresh Token).
+- **Session Tracking (`RefreshSession`)**: Detects token reuse, invalidates compromised refresh sessions, and tracks active device logins.
+- **Role-Based Access Control (RBAC)**: Enforces permissions for `SUPER_ADMIN`, `MANAGER`, and `EMPLOYEE`.
+- **bcrypt Password Hashing**: Uses 10 salt rounds for credential hashing.
+- Custom decorators: `@Auth()`, `@CurrentUser()`, `@Public()` for declarative route guards.
+- Global `ValidationPipe` with strict payload whitelisting.
 
-### 📊 Real-Time Dashboard
-- **Unified Dashboard Registry** with three modes: `daily`, `weekly`, and `monthly`
-- Smart week-boundary splitting within month limits to prevent cross-month overlap
-- Live attendance pulse showing present, absent, late, excused, and escaped employees
+### 🏢 Multi-Manager & Department Architecture
+- **Independent Manager Scoping**: Complete operational independence between managers — each manager supervises their own departments, shifts, and subordinate employees without hierarchy collisions.
+- **Super Admin Oversight**: Global administrative access for system configuration and holistic workforce auditing.
+- **Department Operational Rules**: Configurable working days per month (`monthlyWorkingDays`), custom weekend days array (`weekendDays`), monthly holidays, and custom penalty amounts.
 
-### ⏱ Attendance Management
-- **Check-in**: Automatic lateness detection by comparing arrival time against shift start + grace period
-- **Check-out**: Calculates actual worked minutes and early departure penalties
-- **Auto Check-out** (Cron Job): Automatically marks overdue open shifts as `ESCAPY` (unauthorized departure)
+### ⏱ Attendance Management & Interactive Demo Shift
+- **Check-in & Check-out**: Real-time arrival verification against shift boundaries and grace periods.
+- **Interactive 10-Minute Demo Shift**: Dedicated simulation endpoints (`/attendance/demo-shift`, `demo-check-in`, `demo-check-out`) with 1-min preparation, 7-min work, and grace periods for testing attendance flows.
+- **Auto Check-out Engine**: Scheduled cron job that automatically closes overdue shifts and marks unauthorized departures as `ESCAPY`.
 
-### 📝 Excuse Workflow
-- Employees submit typed excuses (`IN` = late arrival, `OUT` = early departure)
-- Managers review, approve, or reject pending excuses
-- Approved excuses automatically update attendance records and waive deductions
+### 💰 Granular Salary Deductions Engine
+- **Per-Status Penalty Calculation**: Separate tracking for late arrivals, unauthorized early departures, and unexcused absences.
+- **JSON Deduction Breakdown (`deductionBreakdown`)**: Persists itemized deductions (`late`, `earlyLeave`, `absent`) and deduction counts per attendance record.
+- **Customizable Deduction Combinations**: Managers can configure whether to combine all daily deductions or apply prioritized penalties.
+- **Excuse Reimbursement**: Approving an excuse selectively refunds the specific penalty portion and resets corresponding delay/absence minutes.
 
-### 💰 Salary Deductions
-- Per-minute deduction calculation based on base salary
-- Handles late arrivals, early departures, and full-day deductions for unauthorized absences
-- In-memory deduction preview without modifying historical records
+### 📝 Excuse Workflow & Audit Trail
+- Employees submit typed excuses (`ABSENT`, `LATE`, `EARLY_DEPARTURE`).
+- Managers review, approve, or reject pending excuses with explanatory administrative notes (`adminNotes`).
+- Real-time synchronization between excuse status and attendance records.
 
-### 📈 Statistics Engine
-- Centralized `StatisticsHelperService` for all statistical computations
-- Discipline rate calculation with performance tiers (Excellent ≥ 95%, Good ≥ 85%, Fair ≥ 70%)
-- Period summaries for weekly/monthly reports with chart-ready data
-- Employee data enrichment for directory listings
+### 🖼️ Profile & Media Storage
+- **`LocalFileStorageService`**: Dedicated storage service handling file uploads, filename sanitization, and local disk persistence.
+- Static asset serving via `/uploads/avatars/...` with Express static file integration.
+- Avatar upload and profile picture management endpoints (`/users/upload-avatar`, `/users/update-avatar`).
 
-### 🏢 Department & Shift Management
-- Full CRUD for departments and shifts
-- Referential integrity protection — prevents deletion of departments/shifts with active employees
-- Shift-based grace periods for both arrival (`gracePeriodMinIn`) and departure (`gracePeriodMinOut`)
+### 📊 Real-Time Dashboard & Analytics Engine
+- **Unified Dashboard Registry**: Flexible multi-mode registry supporting `daily`, `weekly`, `monthly`, and paginated `ALL` modes.
+- **Centralized Computation Layer (`StatisticsHelperService`)**: Calculates discipline rates with performance tiers (Excellent ≥ 95%, Good ≥ 85%, Fair ≥ 70%), period summaries, and employee performance metrics.
 
 ---
 
@@ -79,36 +83,37 @@
 | **Validation**   | `class-validator` + `class-transformer`                     |
 | **Date Handling**| `date-fns` + `date-fns-tz`                                 |
 | **API Docs**     | [Swagger](https://swagger.io/) via `@nestjs/swagger`        |
+| **Storage**      | Local static file storage (`/uploads`)                      |
 | **Testing**      | [Jest](https://jestjs.io/) + [Supertest](https://github.com/ladjs/supertest) |
 
 ---
 
 ## Architecture
 
-The project follows NestJS's modular architecture with clean separation of concerns:
-
 ```
 src/
-├── core/                    # Cross-cutting concerns
-│   ├── auth/                #   JWT strategy, auth module
-│   ├── decorators/          #   @Auth(), @CurrentUser(), @Public()
-│   ├── filters/             #   Global exception filter
-│   └── guards/              #   JWT & role-based guards
+├── core/                                # Cross-cutting foundation
+│   ├── auth/                            #   JWT auth, refresh sessions, token reuse detection
+│   ├── decorators/                      #   @Auth(), @CurrentUser(), @Public()
+│   ├── filters/                         #   AllExceptionsFilter with standardized JSON errors
+│   ├── guards/                          #   JWT and RBAC role-based guards
+│   └── storage/                         #   LocalFileStorageService & storage interfaces
 │
-├── users/                   # User registration & authentication
-├── employee/                # Employee-specific operations & profile
-├── managing/                # Manager dashboard, reports & admin actions
-├── attendance/              # Check-in/out, excuse handling
-├── department/              # Department CRUD
+├── users/                               # User accounts, registration, login, avatars
+├── employee/                            # Employee profile, personal dashboards & reports
+├── managing/                            # Manager dashboard registry, excuses, team management
+├── attendance/                          # Clock in/out, demo shift simulation, excuse submission
+├── department/                          # Department & shift management with operational rules
 │
-├── utilities/               # Shared services
-│   ├── statistics-helper.service.ts   # Central statistics engine
-│   ├── caculaePeriod.service.ts       # Period calculation logic
-│   └── utilities.service.ts           # General utility functions
+├── utilities/                           # Central computational services
+│   ├── statistics-helper.service.ts     #   Centralized statistics & discipline calculations
+│   ├── caculaePeriod.service.ts         #   Time-bound period boundaries (weeks, months)
+│   └── utilities.service.ts             #   Deduction engine, auto check-out & calculations
 │
-├── prisma/                  # Prisma service (DB connection)
-├── app.module.ts            # Root module
-└── main.ts                  # Application bootstrap
+├── prisma/                              # Prisma database client service
+├── seed-data.ts                         # Standalone seed script
+├── app.module.ts                        # Root module configuration
+└── main.ts                              # Application bootstrap with CORS, Swagger & static assets
 ```
 
 ---
@@ -118,71 +123,63 @@ src/
 ### Prerequisites
 
 - **Node.js** v18 or higher
-- **PostgreSQL** running locally or remotely
-- **npm** (bundled with Node.js)
+- **PostgreSQL** (v14+) running locally or remotely
+- **npm** package manager
 
-### 1. Clone the Repository
+### 1. Clone & Install
 
 ```bash
 git clone https://github.com/Badi-flata/workTime-backend.git
 cd workTime-backend
-```
-
-### 2. Install Dependencies
-
-```bash
 npm install
 ```
 
-### 3. Configure Environment Variables
+### 2. Configure Environment Variables
 
-Create a `.env` file in the project root:
+Copy the example configuration file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your credentials:
 
 ```env
-# Database
-DATABASE_URL="postgresql://<user>:<password>@localhost:5432/workecTime?schema=public"
-
-# Application
+DATABASE_URL="postgresql://postgres:password@localhost:5432/workecTime?schema=public"
 NODE_ENV="development"
 PORT=3030
-
-# Security
 JWT_SECRET="your-secure-jwt-secret-key"
-
-# CORS
 CORS_ORIGIN="http://localhost:3000"
 ```
 
-### 4. Set Up the Database
+### 3. Run Database Migrations
 
 ```bash
-# Run migrations
 npx prisma migrate dev
-
-# Generate Prisma Client
 npx prisma generate
 ```
 
-### 5. Seed Sample Data (Optional)
+### 4. Seed Database (Comprehensive 3-Month Dataset)
 
 ```bash
-npx ts-node -r tsconfig-paths/register src/seed-data.ts
+node seed-dev.js
 ```
 
-### 6. Start the Development Server
+Generates 3 independent managers (1 Super Admin + 2 Managers), 30 employees, profile avatars, and 3 months of progressive attendance records.
+
+### 5. Start Application
 
 ```bash
+# Development with hot-reload
 npm run start:dev
-```
 
-The server will be running at `http://localhost:3030`.
-
-### 7. Build for Production
-
-```bash
+# Production build
 npm run build
 npm run start:prod
 ```
+
+API server will be listening at `http://localhost:3030`.  
+Swagger documentation available at `http://localhost:3030/api/docs`.
 
 ---
 
@@ -190,86 +187,88 @@ npm run start:prod
 
 ### 🔓 Public Routes
 
-| Method | Endpoint          | Description              |
-| :----- | :---------------- | :----------------------- |
-| `POST` | `/users/logUp`    | Register a new account   |
-| `POST` | `/users/loginIn`  | Sign in & receive JWT    |
+| Method | Endpoint         | Description                              |
+| :----- | :--------------- | :--------------------------------------- |
+| `POST` | `/users/logUp`   | Register a new account                   |
+| `POST` | `/users/loginIn` | Sign in & receive access + refresh token |
+| `POST` | `/users/refresh` | Refresh access token via refresh token   |
 
 ---
 
 ### 👤 Authenticated User Routes
 
-| Method   | Endpoint               | Description                 |
-| :------- | :--------------------- | :-------------------------- |
-| `GET`    | `/users/search_Word`   | Search employees directory  |
-| `PATCH`  | `/users/updateMyProfile` | Update own profile        |
-| `DELETE` | `/users/deleteMyProfile` | Delete own account        |
+| Method   | Endpoint                  | Description                               |
+| :------- | :------------------------ | :---------------------------------------- |
+| `GET`    | `/users/myProfile`        | Get currently authenticated user profile  |
+| `PATCH`  | `/users/updateMyProfile`  | Update own name, phone, or job title      |
+| `POST`   | `/users/upload-avatar`    | Upload profile picture (multipart/form)   |
+| `PATCH`  | `/users/update-avatar`    | Update avatar URL directly                |
+| `POST`   | `/users/logout`           | Revoke current refresh session & log out  |
+| `GET`    | `/users/search_Word`      | Search workforce directory                |
+| `DELETE` | `/users/deleteMyProfile`  | Delete own user account                   |
 
 ---
 
 ### 👷 Employee Routes — `Role: EMPLOYEE`
 
-| Method | Endpoint                     | Description                          |
-| :----- | :--------------------------- | :----------------------------------- |
-| `GET`  | `/employee/profile`          | Get own employee profile             |
-| `POST` | `/employee/set-manager`      | Link to a manager                    |
-| `PATCH`| `/employee/update-profile`   | Update employee profile details      |
-| `GET`  | `/employee/today-status`     | Get today's attendance status        |
-| `GET`  | `/employee/weekly-report`    | Get personal weekly report           |
-| `GET`  | `/employee/monthly-report`   | Get personal monthly report          |
-| `GET`  | `/employee/my-dashboard`     | Get personal dashboard data          |
-| `GET`  | `/employee/discipline-rate`  | Get own discipline rate              |
-| `POST` | `/attendance/check-in`       | Clock in                             |
-| `POST` | `/attendance/check-out`      | Clock out                            |
-| `POST` | `/attendance/submit-excuse`  | Submit an excuse for late/early      |
+| Method | Endpoint                       | Description                                      |
+| :----- | :----------------------------- | :----------------------------------------------- |
+| `GET`  | `/employee/profile`            | Get employee profile, shift & department details |
+| `PATCH`| `/employee/update-profile`     | Update personal employee record details          |
+| `GET`  | `/employee/today-status`       | Get today's attendance status & active shift     |
+| `GET`  | `/employee/weekly-report`      | Get personal weekly attendance report            |
+| `GET`  | `/employee/monthly-report`     | Get personal monthly attendance report           |
+| `GET`  | `/employee/my-dashboard`       | Get personal dashboard metrics & discipline rate |
+| `GET`  | `/employee/discipline-rate`    | Calculate employee discipline percentage         |
+| `POST` | `/attendance/check-in`         | Clock in for active scheduled shift              |
+| `POST` | `/attendance/check-out`        | Clock out from active scheduled shift            |
+| `POST` | `/attendance/submit-excuse`    | Submit excuse (`ABSENT`, `LATE`, `EARLY_LEAVE`)  |
+| `GET`  | `/attendance/demo-shift`       | Get or generate isolated 10-minute demo shift    |
+| `POST` | `/attendance/demo-check-in`    | Clock in for interactive demo simulation         |
+| `POST` | `/attendance/demo-check-out`   | Clock out from interactive demo simulation       |
 
 ---
 
-### 👑 Manager Routes — `Role: SUPER_ADMIN`
+### 👑 Manager & Admin Routes — `Role: SUPER_ADMIN | MANAGER`
 
-| Method   | Endpoint                                  | Description                              |
-| :------- | :---------------------------------------- | :--------------------------------------- |
-| `GET`    | `/managing/dashboard`                     | Get attendance dashboard overview        |
-| `GET`    | `/managing/dashboard-registry`            | Unified registry (daily/weekly/monthly)  |
-| `POST`   | `/managing/add-employee/:id`             | Add employee to management               |
-| `DELETE` | `/managing/delete-employee/:id`          | Remove employee from management          |
-| `GET`    | `/managing/my-employees`                 | List all managed employees               |
-| `POST`   | `/managing/make-a-shift`                 | Create a new shift                       |
-| `GET`    | `/managing/shifts`                       | List all shifts                          |
-| `PATCH`  | `/managing/shifts/:id`                   | Update a shift                           |
-| `DELETE` | `/managing/shifts/:id`                   | Delete a shift                           |
-| `PATCH`  | `/managing/audit-employee`               | Audit/update employee record             |
-| `GET`    | `/managing/employee-weekly-report/:id`   | Get employee's weekly report             |
-| `GET`    | `/managing/employee-monthly-report/:id`  | Get employee's monthly report            |
-| `GET`    | `/managing/discipline-rate/:employeeProfileId` | Get employee's discipline rate     |
-| `GET`    | `/managing/pending-excuses`              | List all pending excuses                 |
-| `POST`   | `/managing/approve-excuse/:id`           | Approve an excuse                        |
-| `POST`   | `/managing/auto-checkout`                | Trigger automatic checkout               |
-| `POST`   | `/managing/salary-deduction/:employeeId` | Calculate salary deduction               |
+| Method   | Endpoint                                        | Description                                     |
+| :------- | :---------------------------------------------- | :---------------------------------------------- |
+| `GET`    | `/managing/dashboard-registry`                  | Unified registry (`daily`, `weekly`, `monthly`) |
+| `GET`    | `/managing/my-employees`                        | List all subordinates managed by this manager   |
+| `POST`   | `/managing/add-employee/:id`                   | Assign an employee to manager's team            |
+| `DELETE` | `/managing/delete-employee/:id`                | Remove an employee from manager's team          |
+| `POST`   | `/managing/turn-department-employee`            | Transfer employee to another department & shift |
+| `GET`    | `/managing/pending-excuses`                    | List pending excuses for manager's subordinates |
+| `POST`   | `/managing/approve-excuse/:id`                 | Approve excuse & selectively refund deductions  |
+| `POST`   | `/managing/reject-excuse/:id`                  | Reject excuse with manager feedback note        |
+| `POST`   | `/managing/auto-checkout`                      | Trigger immediate auto check-out for overdue    |
+| `POST`   | `/managing/salary-deduction/:employeeId`       | Recalculate daily salary deduction for employee |
+| `GET`    | `/managing/settings`                           | Get manager automation & deduction preferences  |
+| `PATCH`  | `/managing/settings`                           | Update auto check-out and deduction rules       |
 
 ---
 
-### 🏢 Department Routes — `Role: SUPER_ADMIN`
+### 🏢 Department & Shift Routes — `Role: SUPER_ADMIN | MANAGER`
 
-| Method   | Endpoint                | Description                   |
-| :------- | :---------------------- | :---------------------------- |
-| `GET`    | `/department`           | List all departments          |
-| `GET`    | `/department/:id`       | Get department by ID          |
-| `POST`   | `/department`           | Create a new department       |
-| `PATCH`  | `/department/:id`       | Update a department           |
-| `DELETE` | `/department/:id`       | Delete a department           |
-| `GET`    | `/department/list/names`| Get department names (dropdown)|
+| Method   | Endpoint                      | Description                                          |
+| :------- | :---------------------------- | :--------------------------------------------------- |
+| `GET`    | `/department`                 | List all departments managed by authenticated manager|
+| `GET`    | `/department/:id`             | Get department details by ID                         |
+| `POST`   | `/department`                 | Create department with operational rules & penalties |
+| `PATCH`  | `/department/:id`             | Update department rules, working days, and penalties |
+| `DELETE` | `/department/:id`             | Delete department (protected against active members) |
+| `GET`    | `/department/list/names`      | Dropdown options of department names                 |
+| `GET`    | `/department/manager/shifts`  | Get all shifts belonging to manager's departments    |
 
 ---
 
 ## Database Schema
 
-The database consists of six core models with well-defined relationships:
-
 ```mermaid
 erDiagram
-    User ||--o| AdminProfile : "has"
-    User ||--o| EmployeeProfile : "has"
+    User ||--o| AdminProfile : "extends"
+    User ||--o| EmployeeProfile : "extends"
+    User ||--o{ RefreshSession : "owns"
     AdminProfile ||--o{ Department : "manages"
     AdminProfile ||--o{ EmployeeProfile : "supervises"
     Department ||--o{ EmployeeProfile : "contains"
@@ -284,17 +283,43 @@ erDiagram
         string passwordHash
         string fullName
         string jobTitle
+        string imageProfile
         enum role
+        string phone
     }
 
-    EmployeeProfile {
+    AdminProfile {
         uuid id PK
         uuid userId FK
-        uuid departmentId FK
-        uuid shiftId FK
+        boolean autoCheckoutEnabled
+        boolean isActiveDeduction
+        boolean combineDeductionsOnEndShift
+        boolean delayDeductionEnabled
+        boolean earlyLeaveDeductionEnabled
+        boolean absentDeductionEnabled
+    }
+
+    Department {
+        uuid id PK
+        string name UK
+        string description
+        int monthlyWorkingDays
+        int[] weekendDays
+        int monthlyHolidays
+        float latePenaltyAmount
+        float earlyLeavePenaltyAmount
+        float absentPenaltyAmount
         uuid managerId FK
-        boolean isWorking
-        int salary
+    }
+
+    Shift {
+        uuid id PK
+        string name
+        string startTime
+        string endTime
+        int gracePeriodMinIn
+        int gracePeriodMinOut
+        uuid departmentsId FK
     }
 
     Attendance {
@@ -305,8 +330,14 @@ erDiagram
         enum status
         int delayMinutes
         int earlyLeaveMinutes
-        int totalWorkedMinutes
+        int lateMinutes
+        float totalWorkedHours
         int salaryDeduction
+        int deductionsCount
+        json deductionBreakdown
+        string adminNotes
+        string employeeNote
+        uuid employeeProfileId FK
     }
 
     Excuse {
@@ -315,92 +346,46 @@ erDiagram
         enum type
         boolean isApproved
         uuid attendanceId FK
+        uuid submittedById
+    }
+
+    RefreshSession {
+        uuid id PK
+        string tokenHash UK
+        uuid userId FK
+        boolean isRevoked
+        datetime expiresAt
     }
 ```
 
-### Enums
-
-| Enum               | Values                                          |
-| :------------------ | :----------------------------------------------- |
-| `Role`             | `SUPER_ADMIN`, `EMPLOYEE`                        |
-| `AttendanceStatus` | `ON_TIME`, `LATE`, `ABSENT`, `EXCUSED`, `ESCAPY` |
-| `ExcuseType`       | `IN` (late arrival), `OUT` (early departure)     |
-
 ---
 
-## Available Scripts
+## Release History
 
-| Script              | Description                              |
-| :------------------ | :--------------------------------------- |
-| `npm run start:dev` | Start dev server with hot-reload         |
-| `npm run start`     | Start server (production mode)           |
-| `npm run start:prod`| Start compiled production build          |
-| `npm run build`     | Compile TypeScript to JavaScript         |
-| `npm run lint`      | Run ESLint with auto-fix                 |
-| `npm run format`    | Format code with Prettier                |
-| `npm run test`      | Run unit tests                           |
-| `npm run test:e2e`  | Run end-to-end tests                     |
-| `npm run test:cov`  | Run tests with coverage report           |
+### 🚀 v4.0.0 — Enterprise Attendance & Multi-Manager Operations
+- **Multi-Manager Independence**: Independent scoping for `MANAGER` roles supervising separate departments and teams.
+- **Department Operational Rules**: Added configurable monthly working days, custom weekends, and status penalties.
+- **Granular Deductions Breakdown**: Itemized JSON breakdown for late, early leave, and absent penalties with automatic excuse reimbursement.
+- **Interactive Demo Shift Simulation**: Isolated 10-minute dynamic shift endpoints for live check-in/out testing.
+- **Media Storage & Avatars**: Local storage service for avatar uploads and static file serving via `/uploads/avatars`.
+- **Refresh Session Tracking**: Multi-device login tracking, token reuse detection, and session invalidation.
+- **E2E Test Suites**: Automated tests for auto check-out and consistency audit.
 
----
+### 📦 v3.5.0 — Modular Architecture & API Standardization
+- **Modular Refactoring**: Separated logic into `department`, `employee`, `attendance`, `managing`, `users`, and `core`.
+- **OpenAPI / Swagger**: Comprehensive Swagger documentation and interactive testing interface.
+- **Period Calculation Engine**: Isolated `calculate-period.service.ts` for standardized week and month slicing.
+- **Cross-Day Shifts**: Full support for overnight and cross-day shift boundary tracking.
+- **Global Error Handling**: Standardized `AllExceptionsFilter` with structured API responses.
 
-## Project Structure
-
-```
-nestjs-prisma/
-├── prisma/
-│   ├── schema.prisma          # Database schema definition
-│   └── migrations/            # Migration history
-├── src/
-│   ├── core/                  # Auth, guards, decorators, filters
-│   ├── users/                 # User module (registration, login)
-│   ├── employee/              # Employee module (profile, reports)
-│   ├── managing/              # Manager module (dashboard, admin)
-│   ├── attendance/            # Attendance module (check-in/out)
-│   ├── department/            # Department module (CRUD)
-│   ├── utilities/             # Shared services & helpers
-│   ├── prisma/                # Prisma database service
-│   ├── seed-data.ts           # Database seed script
-│   ├── app.module.ts          # Root application module
-│   └── main.ts                # Bootstrap entry point
-├── test/                      # E2E test suite
-├── .env                       # Environment variables (not committed)
-├── nest-cli.json              # NestJS CLI configuration
-├── tsconfig.json              # TypeScript configuration
-└── package.json               # Dependencies & scripts
-```
-
----
-
-## Security Best Practices
-
-| Practice                     | Implementation                                          |
-| :--------------------------- | :------------------------------------------------------ |
-| Password Storage             | bcrypt hashing with 10 salt rounds                      |
-| Token Authentication         | JWT with expiration, containing `userId` and `role`     |
-| Input Validation             | Global `ValidationPipe` with whitelist enforcement      |
-| Role-Based Access            | Custom guards checking `SUPER_ADMIN` / `EMPLOYEE` roles |
-| CORS Protection              | Configurable origin via `CORS_ORIGIN` env variable      |
-| Data Integrity               | Foreign key constraints + programmatic deletion guards  |
-| Error Handling               | Global exception filter for consistent error responses  |
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### 📦 v3.0.0 — Unified Dashboard Registry
+- Replaced legacy individual report endpoints with unified, multi-mode dashboard registry (`daily`, `weekly`, `monthly`, `all`).
 
 ---
 
 ## License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-
----
 
 <p align="center">
   Built with ❤️ using <a href="https://nestjs.com/">NestJS</a>
