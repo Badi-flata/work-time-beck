@@ -16,7 +16,7 @@ export class AuthService {
   }
 
   // توليد زوج الرموز وتخزين جلسة الـ Refresh Token في قاعدة البيانات
-  async generateTokenPair(username: string, userId: string, role: Role) {
+  async generateTokenPair(username: string, userId: string, role: Role, accountId: string) {
     const accessPayload = { username, userId, role };
     // Access token (صلاحية 15 دقيقة)
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
@@ -26,10 +26,13 @@ export class AuthService {
     const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const tokenHash = this.hashToken(refreshTokenRaw);
 
+    // معرف المستخدم الفعلي لجدول RefreshSession (لضمان صحة foreign key على جدول User)
+   
+
     await this.prisma.refreshSession.create({
       data: {
         tokenHash,
-        userId,
+      userId: accountId,
         expiresAt: refreshExpiresAt,
       },
     });
@@ -53,7 +56,7 @@ export class AuthService {
       where: { tokenHash },
       include: {
         user: {
-          select: { id: true, fullName: true, role: true },
+          select: { id: true, fullName: true, role: true, adminProfile: { select: { id: true } }, employeeProfile: { select: { id: true } } },
         },
       },
     });
@@ -78,18 +81,35 @@ export class AuthService {
       data: { isRevoked: true },
     });
 
-    // إصدار زوج رموز جديد تماماً
+    // إصدار زوج رموز جديد تماماً باستخدام profileId
+    const profileId = session.user.role === 'EMPLOYEE'
+      ? (session.user.employeeProfile?.id || session.user.id)
+      : (session.user.adminProfile?.id || session.user.id);
     return this.generateTokenPair(
       session.user.fullName,
+      profileId,
+      session.user.role,
       session.user.id,
-      session.user.role
     );
   }
 
-  // تسجيل الخروج وإبطال جلسة المستخدم
+  // تسجيل الخروج وإبطال جلسة المستخدم (يدعم إما User.id أو Profile.id)
   async revokeUserSessions(userId: string) {
+    // نبحث عن المستخدم إما بالـ User.id أو عبر ربط الـ AdminProfile / EmployeeProfile
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: userId },
+          { adminProfile: { id: userId } },
+          { employeeProfile: { id: userId } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    const targetUserId = user ? user.id : userId;
     await this.prisma.refreshSession.updateMany({
-      where: { userId },
+      where: { userId: targetUserId },
       data: { isRevoked: true },
     });
     return { message: "تم إبطال جميع الجلسات بنجاح" };

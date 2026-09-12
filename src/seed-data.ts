@@ -106,8 +106,9 @@ async function bootstrap() {
     console.log('جاري توليد رمز الوصول (Access Token) للمدير...');
     const tokenResult = await authService.generateTokenPair(
       managerUser.fullName,
-      managerUserId,
-      Role.SUPER_ADMIN
+      adminProfileId,
+      Role.SUPER_ADMIN,
+      managerUserId
     );
 
     console.log('\n==================================================');

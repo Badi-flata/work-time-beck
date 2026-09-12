@@ -75,28 +75,39 @@ export class AllExceptionsFilter implements ExceptionFilter {
         case HttpStatus.UNAUTHORIZED:
           if (errorCategory === 'SYSTEM_INTERNAL_ERROR') {
             errorCategory = 'UNAUTHENTICATED';
+          }
+          if (!message || message === 'Unauthorized') {
             message = 'يرجى تسجيل الدخول بشكل صحيح للوصول إلى هذا المورد.';
           }
           break;
         case HttpStatus.FORBIDDEN:
           if (errorCategory === 'SYSTEM_INTERNAL_ERROR') {
             errorCategory = 'UNAUTHORIZED_ACCESS';
+          }
+          if (!message || message === 'Forbidden') {
             message = 'عذراً، ليس لديك الصلاحية الكافية للوصول إلى هذا المورد.';
           }
           break;
         case HttpStatus.NOT_FOUND:
           if (errorCategory === 'SYSTEM_INTERNAL_ERROR') {
             errorCategory = 'NOT_FOUND';
-            message = typeof message === 'string' && message !== 'Not Found' ? message : 'عذراً، المورد الذي تحاول الوصول إليه غير موجود.';
+          }
+          if (!message || message === 'Not Found') {
+            message = 'عذراً، المورد الذي تحاول الوصول إليه غير موجود.';
           }
           break;
         case HttpStatus.CONFLICT:
           if (errorCategory === 'SYSTEM_INTERNAL_ERROR') {
             errorCategory = 'RESOURCE_CONFLICT';
           }
+          if (!message || message === 'Conflict') {
+            message = 'توجد بيانات مسجلة مسبقاً تتعارض مع هذا الطلب.';
+          }
           break;
         default:
-          errorCategory = 'HTTP_CLIENT_ERROR';
+          if (errorCategory === 'SYSTEM_INTERNAL_ERROR') {
+            errorCategory = 'HTTP_CLIENT_ERROR';
+          }
           break;
       }
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
