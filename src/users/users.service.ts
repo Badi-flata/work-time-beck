@@ -26,30 +26,36 @@ export class UsersService {
     private utilities: UtilitiesService
   ) { }
  
-  // أنشاء مدير 
+  // إنشاء مدير جديد
   async createManager(Dto: CreateUserDto) {
-    if(Dto.role !== Role.SUPER_ADMIN){
-      throw new InsufficientPermissionsException();
+    if (Dto.role === Role.SUPER_ADMIN) {
+      throw new ForbiddenException('لا يمكن إنشاء حساب مدير نظام عام عبر التسجيل المباشر');
     }
+    const targetRole = Role.MANAGER;
     const fullName = Dto.fullName || 'User';
     const passwordHash = await bcrypt.hash(Dto.passwordHash || '', 10);
     const Id = randomUUID();
+    const profileId =  randomUUID()
     
     // السماح لـ Prisma برمي الاستثناء مباشرة ليلتقطه AllExceptionsFilter ويحلل رموز الأخطاء بدقة
     const newManager = await this.prisma.user.create({ 
-      data:{ 
-         id:Id , 
-         fullName:fullName,
-         email:Dto.email,
-         passwordHash:passwordHash,
-         phone:Dto.phone,
-         role:Dto.role,
-        adminProfile:{
-         create:{
-            id:randomUUID(),   
-        }}},
-      });
-    const tokenResult = await this.jwt.generateTokenPair( fullName, Id , Dto.role );
+      data: { 
+        id: Id, 
+        fullName: fullName,
+        email: Dto.email,
+        passwordHash: passwordHash,
+        phone: Dto.phone,
+        role: targetRole,
+        adminProfile: {
+          create: {
+            id: profileId,
+          },
+        },
+      },
+      include: { adminProfile: true },
+    });
+    const adminProfileId = newManager.adminProfile?.id || profileId;
+    const tokenResult = await this.jwt.generateTokenPair(fullName, adminProfileId, targetRole, Id);
     return ResponseHelper.created(
       {
         token: tokenResult.access_token,
@@ -68,6 +74,7 @@ export class UsersService {
    
 
     const Id = randomUUID();
+    const profileId =  randomUUID()
 
     const fullName = Dto.fullName || 'User';
     const passwordHash = await bcrypt.hash(Dto.passwordHash || '', 10);
@@ -83,16 +90,18 @@ export class UsersService {
         role:Dto.role,
         employeeProfile:{
           create:{
-            id:Id,
+            id:profileId,
             departmentId:null,
             shiftId:null,
             managerId:null
           }
         }
-      }
+      },
+      include:{employeeProfile:true}
     });
 
-    const tokenResult = await this.jwt.generateTokenPair( fullName, Id , Dto.role );
+    const empProfileId = Employe.employeeProfile?.id || Id;
+    const tokenResult = await this.jwt.generateTokenPair( fullName,empProfileId , Dto.role, Id);
     return ResponseHelper.created(
       {
         token: tokenResult.access_token,
@@ -124,8 +133,11 @@ export class UsersService {
 
     if(!isValid) throw new InvalidCredentialsException();
    
-    // توليد زوج الرموز (Access Token + Refresh Token)
-    const tokenResult = await this.jwt.generateTokenPair( user.fullName , user.id , user.role);
+    // توليد زوج الرموز (Access Token + Refresh Token) باستخدام profileId
+    const profileId = user.role === 'EMPLOYEE' 
+      ? (user.employeeProfile?.id || user.id) 
+      : (user.adminProfile?.id || user.id);
+    const tokenResult = await this.jwt.generateTokenPair( user.fullName , profileId , user.role, user.id);
 
     return ResponseHelper.success(
       {
@@ -139,9 +151,14 @@ export class UsersService {
   }
   
 async getMyProfile(userId: string) {
+
+    const profileId = await this.prisma.employeeProfile.findUnique({
+      where:{id:userId},
+      include:{user:true}
+    })
     const user =   await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
+      where: { id: profileId?.userId },
+      select: { 
         imageProfile:true,
         jobTitle:true,
          fullName:true,
@@ -188,8 +205,12 @@ async getMyProfile(userId: string) {
   }
 
   async getMyManager(userId: string) {
+       const profileId = await this.prisma.adminProfile.findUnique({
+      where:{id:userId},
+      include:{user:true}
+    })
     const user =   await this.prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: profileId?.userId },
       select: {
         imageProfile:true,
         jobTitle:true,
@@ -335,12 +356,12 @@ async getMyProfile(userId: string) {
 
     if (user?.adminProfile) {
       await this.prisma.employeeProfile.updateMany({
-        where: { managerId: user.adminProfile.userId },
+        where: { managerId: user.adminProfile.id },
         data: { managerId: null }
       });
 
       const departments = await this.prisma.department.findMany({
-        where: { managerId: user.adminProfile.userId }
+        where: { managerId: user.adminProfile.id }
       });
 
       for (const dep of departments) {

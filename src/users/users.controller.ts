@@ -10,6 +10,7 @@ import {
   Query,
   UseInterceptors,
   UploadedFile,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -73,7 +74,10 @@ export class UsersController {
       body.passwordHash = body.password;
     }
     const createUserDto = body as CreateUserDto;
-    if (createUserDto.role === Role.MANAGER || createUserDto.role === Role.SUPER_ADMIN) {
+    if (createUserDto.role === Role.SUPER_ADMIN) {
+      throw new ForbiddenException('لا يمكن إنشاء حساب مدير نظام عام عبر التسجيل المباشر');
+    }
+    if (createUserDto.role === Role.MANAGER) {
       return this.usersService.createManager(createUserDto);
     } else {
       return this.usersService.creatEmploye(createUserDto);
@@ -109,6 +113,7 @@ export class UsersController {
   getMyProfile(@CurrentUser(['userId', 'role']) user: string[]) {
     const userId = user['userId'];
     const role = user['role'];
+    // console.log("userId", userId);
 
     if (role === 'SUPER_ADMIN' || role === 'MANAGER') {
       return this.usersService.getMyManager(userId);

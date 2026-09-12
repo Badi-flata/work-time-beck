@@ -24,16 +24,37 @@ export class EmployeeService {
 
   async addOrChangeManager(managerId: string, MyId: string) {
     const manager = await this.prisma.adminProfile.findUnique({
-      where: { id: managerId }
+      where: { id: managerId },
+      include:{user:true ,managedDepartments:{
+        select:{
+          id:true,
+          name:true,
+          shift:{select:{id:true , name:true}}
+        }
+},
+      }
     });
     if (!manager) throw new ManagerProfileNotFoundException();
 
+    const empProfile = await this.prisma.employeeProfile.findFirst({
+      where: { OR: [{ userId: MyId }, { id: MyId }] }
+    });
+    if (!empProfile) throw new EmployeeProfileNotFoundException();
+
+    const managerName = manager.user.fullName;
+    const firstDepra= manager.managedDepartments[0];
+    const firstShift= manager.managedDepartments[0].shift[0];
+
     await this.prisma.employeeProfile.update({
-      where: { userId: MyId },
-      data: { managerId: managerId }
+      where: { id: empProfile.id },
+      data: { managerId: managerId ,
+         departmentId: firstDepra.id,
+        shiftId:firstShift.id,
+        salary:5000
+      },
     });
 
-    return ResponseHelper.success(null, 'تم تعيين المدير بنجاح');
+    return ResponseHelper.success(null,` تم تعين  "${managerName}" مدير لك  بنجاح , وأيضاً تم ضمك الى قسم "${firstDepra.name}" والوردية "${firstShift.name}" `);
   }
 
   async getMyDashboard(userId: string,mode:Modes,dateAnchor:string ,employeeId?:string) {
