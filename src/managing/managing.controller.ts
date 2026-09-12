@@ -235,6 +235,7 @@ export class ManagingController {
   // ─── إعدادات الأتمتة والخصم للمدير ──────────────────────────
   @Get('settings')
   getManagerSettings(@CurrentUser('userId') userId: string) {
+   
     return this.managingService.getManagerSettings(userId);
   }
 
@@ -244,12 +245,15 @@ export class ManagingController {
     @Body()
     dto: {
       autoCheckoutEnabled?: boolean;
-      dailyDeductionEnabled?: boolean;
+      isActiveDeduction?: boolean;
+      combineDeductionsOnEndShift?: boolean;
       delayDeductionEnabled?: boolean;
       earlyLeaveDeductionEnabled?: boolean;
-      deductDelayImmediately?: boolean;
+      absentDeductionEnabled?: boolean;
     },
   ) {
+     console.log("userId", userId);
+     console.log("dto", dto);
     return this.managingService.updateManagerSettings(userId, dto);
   }
 

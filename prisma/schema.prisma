@@ -81,6 +81,8 @@ model AdminProfile {
   
   // المدير يشرف على موظفين محددين بشكل مباشر (اختياري)
   subordinates       EmployeeProfile[]
+
+  @@index([userId, autoCheckoutEnabled])
 }
 
 // جدول تتبع جلسات الـ Refresh Tokens ومنع إعادة الاستخدام
@@ -117,27 +119,38 @@ model EmployeeProfile {
 
   // علاقة المدير المباشر: ربط الموظف بالمدير المسؤول عنه
   managerId    String?
-  manager      AdminProfile? @relation(fields: [managerId], references: [userId])
+  manager      AdminProfile? @relation(fields: [managerId], references: [id])
 
   // سجلات الحضور الخاصة بالموظف فقط
   attendances  Attendance[]
 
   @@index([managerId])
+  @@index([userId])
+  @@index([managerId, isWorking])
+  @@index([departmentId, shiftId])
 }
 
 // جدول الأقسام
 model Department {
-  id             String            @id @default(uuid())
-  name           String            @unique
-  description    String?           // وصف القسم
+  id                      String            @id @default(uuid())
+  name                    String            @unique
+  description             String?           // وصف القسم
   
+  // القواعد والتهيئة التشغيلية للقسم
+  monthlyWorkingDays      Int               @default(22)
+  weekendDays             Int[]             @default([5, 6])
+  monthlyHolidays         Int               @default(0)
+  latePenaltyAmount       Float             @default(50.0)
+  earlyLeavePenaltyAmount Float             @default(50.0)
+  absentPenaltyAmount     Float             @default(100.0)
+
   // العلاقات
-  employees      EmployeeProfile[]
-  shift          Shift[]
+  employees               EmployeeProfile[]
+  shift                   Shift[]
   
   // ربط القسم بالمدير المسؤول عنه
-  managerId      String
-  manager        AdminProfile?        @relation(fields: [managerId], references: [userId])
+  managerId               String
+  manager                 AdminProfile?     @relation(fields: [managerId], references: [id])
 }
 
 // جدول الورديات
@@ -167,19 +180,22 @@ model Attendance {
   managerName         String?
   departmentName      String?
 
+  shiftId             String?
   shiftName           String?
   shiftStart          String?            
   shiftEnd            String?            
   graceIn             Int               @default(15)
   graceOut            Int               @default(30)
   
-  salaryDeduction     Int            @default(0)
-  delayMinutes        Int                @default(0)
-  earlyLeaveMinutes   Int                @default(0)
-  lateMinutes         Int                @default(0)
-  totalWorkedHours    Float              @default(0)
-  adminNotes          String?            @db.Text
-  employeeNote        String?            @db.Text  // ملاحظات الموظف عند الخروج
+  salaryDeduction     Int               @default(0)
+  deductionsCount     Int               @default(0)
+  deductionBreakdown  Json?
+  delayMinutes        Int               @default(0)
+  earlyLeaveMinutes   Int               @default(0)
+  lateMinutes         Int               @default(0)
+  totalWorkedHours    Float             @default(0)
+  adminNotes          String?           @db.Text
+  employeeNote        String?           @db.Text  // ملاحظات الموظف عند الخروج
 
   // أعذار مرتبطة بهذا السجل
   excuses             Excuse[]
@@ -190,6 +206,8 @@ model Attendance {
 
   @@unique([employeeProfileId, date])
   @@index([date])
+  @@index([employeeProfileId, date])
+  @@index([date, status])
 }
 
 // نموذج الأعذار — لتسجيل أعذار الحضور والانصراف
@@ -209,4 +227,5 @@ model Excuse {
 
   @@index([submittedById])
   @@index([attendanceId])
+  @@index([submittedById, isApproved])
 }

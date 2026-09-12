@@ -24,15 +24,15 @@ export class DepartmentService {
 
   // جلب جميع الأقسام التابعة للمدير مع عدد الموظفين والورديات
   async findAll(managerUserId: string) {
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
+    const admin = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId: managerUserId }, { id: managerUserId }] },
     });
     if (!admin) {
       throw new ManagerProfileNotFoundException();
     }
 
     const data = await this.prisma.department.findMany({
-      where: { managerId: admin.userId },
+      where: { managerId: admin.id },
       include: {
         _count: { select: { employees: true } },
         shift: {
@@ -101,8 +101,8 @@ export class DepartmentService {
 
   // إنشاء قسم جديد مرتبط بالمدير الحالي
   async create(managerUserId: string, dto: CreateDepartmentDto) {
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
+    const admin = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId: managerUserId }, { id: managerUserId }] },
     });
     if (!admin) {
       throw new ManagerProfileNotFoundException();
@@ -113,14 +113,20 @@ export class DepartmentService {
         id: randomUUID(),
         name: dto.name,
         description: dto.description,
-        managerId: admin.userId,
+        managerId: admin.id,
+        ...(dto.monthlyWorkingDays !== undefined && { monthlyWorkingDays: dto.monthlyWorkingDays }),
+        ...(dto.weekendDays !== undefined && { weekendDays: dto.weekendDays }),
+        ...(dto.monthlyHolidays !== undefined && { monthlyHolidays: dto.monthlyHolidays }),
+        ...(dto.latePenaltyAmount !== undefined && { latePenaltyAmount: dto.latePenaltyAmount }),
+        ...(dto.earlyLeavePenaltyAmount !== undefined && { earlyLeavePenaltyAmount: dto.earlyLeavePenaltyAmount }),
+        ...(dto.absentPenaltyAmount !== undefined && { absentPenaltyAmount: dto.absentPenaltyAmount }),
       },
     });
 
     return ResponseHelper.created(department, 'تم إنشاء القسم بنجاح');
   }
 
-  // تحديث اسم أو وصف القسم
+  // تحديث بيانات القسم التشغيلية
   async update(id: string, dto: UpdateDepartmentDto) {
     const exists = await this.prisma.department.findUnique({ where: { id } });
     if (!exists) {
@@ -132,6 +138,12 @@ export class DepartmentService {
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.monthlyWorkingDays !== undefined && { monthlyWorkingDays: dto.monthlyWorkingDays }),
+        ...(dto.weekendDays !== undefined && { weekendDays: dto.weekendDays }),
+        ...(dto.monthlyHolidays !== undefined && { monthlyHolidays: dto.monthlyHolidays }),
+        ...(dto.latePenaltyAmount !== undefined && { latePenaltyAmount: dto.latePenaltyAmount }),
+        ...(dto.earlyLeavePenaltyAmount !== undefined && { earlyLeavePenaltyAmount: dto.earlyLeavePenaltyAmount }),
+        ...(dto.absentPenaltyAmount !== undefined && { absentPenaltyAmount: dto.absentPenaltyAmount }),
       },
     });
 
@@ -204,15 +216,15 @@ export class DepartmentService {
 
   // جلب جميع الورديات التابعة لأقسام المدير
   async getShifts(managerUserId: string) {
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
+    const admin = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId: managerUserId }, { id: managerUserId }] },
     });
     if (!admin) {
       throw new ManagerProfileNotFoundException();
     }
 
     const departments = await this.prisma.department.findMany({
-      where: { managerId: admin.userId },
+      where: { managerId: admin.id },
       select: { id: true },
     });
 

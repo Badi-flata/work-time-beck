@@ -1,3 +1,4 @@
+
 import { AttendanceStatus, Role } from "@prisma/client";
 import { IsEmail, IsEnum, IsNumber, IsBoolean , IsNotEmpty , IsOptional, IsString } from "class-validator";
 

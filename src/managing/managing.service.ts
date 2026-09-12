@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { auditMyEmployeeDto } from './dto/auditMyEmployee.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Role, AttendanceStatus } from '@prisma/client';
+import { Role, AttendanceStatus, ExcuseType } from '@prisma/client';
 import { StatisticsHelperService } from '../utilities/statistics-helper.service';
 import {
   ManagerProfileNotFoundException,
@@ -41,12 +41,17 @@ export class ManagingService {
     dateAnchor?: string,
     departmentId?: string,
   ) {
-    const manager = await this.prisma.adminProfile.findUnique({
-      where: { userId }
+    const manager = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId }, { id: userId }] }
     });
     if (!manager) throw new ManagerProfileNotFoundException();
 
-    const whereClause: any = { managerId: manager.userId };
+    const whereClause: any = {
+      OR: [
+        { managerId: manager.id },
+        { department: { managerId: manager.id } },
+      ],
+    };
     if (departmentId) {
       whereClause.departmentId = departmentId;
     }
@@ -152,14 +157,15 @@ export class ManagingService {
       if(!dto) throw new BadRequestException('البيانات مطلوبة');
       if(!managerUserId)throw new BadRequestException('معرف المدير مطلوب');
 
-    const manager = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId }
+    const manager = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId: managerUserId }, { id: managerUserId }] }
     });
     if (!manager) throw new ManagerProfileNotFoundException();
 
     const check = await this.prisma.user.findFirst({
-      where: { OR:[{id: employeeUserId },
-                    {email:dto?.email}
+      where: { OR:[
+               {id: employeeUserId },
+               {email:dto?.email}
       ]},
       select: {
         id: true,
@@ -180,11 +186,22 @@ export class ManagingService {
 if( !department ||!dto?.departmentId){
       throw new DepartmentNotFoundException();
     }
-    const shift = await this.prisma.shift.findUnique({
-      where: { id: dto?.shiftId }
-    });
 
-  if(!shift ||!dto?.shiftId){
+    // إذا لم يُحدد shiftId، يتم إسناد أول وردية من القسم تلقائياً
+    let resolvedShiftId = dto?.shiftId;
+    if (!resolvedShiftId && dto?.departmentId) {
+      const defaultShift = await this.prisma.shift.findFirst({
+        where: { departmentsId: dto.departmentId },
+        orderBy: { name: 'asc' },
+      });
+      if (defaultShift) resolvedShiftId = defaultShift.id;
+    }
+
+    const shift = resolvedShiftId ? await this.prisma.shift.findUnique({
+      where: { id: resolvedShiftId }
+    }) : null;
+
+  if(!shift ||!resolvedShiftId){
         throw new ShiftNotFoundException();
       }
 
@@ -193,24 +210,33 @@ if( !department ||!dto?.departmentId){
     }
     
 
-    if (check.employeeProfile.managerId && check.employeeProfile.managerId !== manager.userId) {
+    if (check.employeeProfile.managerId && check.employeeProfile.managerId !== manager.id) {
       throw new EmployeeAlreadyAssignedException();
     }
-    if (check.employeeProfile.managerId && check.employeeProfile.managerId === manager.userId) {
+    if (check.employeeProfile.managerId && check.employeeProfile.managerId === manager.id) {
       throw new EmployeeAlreadyAssignedToYouException();
     }
  
     
     
 
-    const updateData: any = { managerId: manager.userId };
+    const updateData: any = { managerId: manager.id };
     if (department||dto?.departmentId) updateData.departmentId = department.id || dto.departmentId;
     if (shift||dto?.shiftId) updateData.shiftId = shift.id || dto.shiftId;
     if (dto?.salary !== undefined) updateData.salary = Number(dto.salary);
-    if (dto?.name !== undefined) updateData.name = dto.name;
-    if (dto?.email !== undefined) updateData.email = dto.email;
-    if (dto?.phone !== undefined) updateData.phone = dto.phone;
-    if (dto?.jobTitle !== undefined) updateData.jobTitle = dto.jobTitle;
+
+    const userUpdateData: any = {};
+    if (dto?.name !== undefined) userUpdateData.fullName = dto.name;
+    if (dto?.email !== undefined) userUpdateData.email = dto.email;
+    if (dto?.phone !== undefined) userUpdateData.phone = dto.phone;
+    if (dto?.jobTitle !== undefined) userUpdateData.jobTitle = dto.jobTitle;
+
+    if (Object.keys(userUpdateData).length > 0) {
+      await this.prisma.user.update({
+        where: { id: check.id },
+        data: userUpdateData,
+      });
+    }
 
     const updated = await this.prisma.employeeProfile.update({
       where: { id: check.employeeProfile.id },
@@ -237,7 +263,12 @@ if( !department ||!dto?.departmentId){
       };
 
       const check = await this.prisma.user.findFirst({
-        where: filter,
+        where: {
+          OR: [
+            ...(employeeId ? [{ id: employeeId }, { employeeProfile: { id: employeeId } }] : []),
+            ...(email ? [{ email: email }] : []),
+          ],
+        },
         select: {
           id: true,
           role: true,
@@ -312,16 +343,53 @@ if( !department ||!dto?.departmentId){
       data: { isApproved }
     });
 
-    if (excuse.attendanceId) {
-      const existingNotes = excuse.attendance?.adminNotes;
+    if (excuse.attendanceId && excuse.attendance) {
+      const att = excuse.attendance;
+      const existingNotes = att.adminNotes;
       const newNote = dto.adminNotes || (isApproved ? 'تم قبول العذر من قِبل المدير' : 'تم رفض العذر من قِبل المدير');
       const combinedNotes = [existingNotes, newNote].filter(Boolean).join(' | ');
 
       const updateData: any = { adminNotes: combinedNotes };
 
-      // إذا تمت الموافقة وكان السجل مسجلاً كـ ABSENT، نحدث الحالة إلى EXCUSED
-      if (isApproved && excuse.attendance?.status === AttendanceStatus.ABSENT) {
-        updateData.status = AttendanceStatus.EXCUSED;
+      // إذا تمت الموافقة، نجري استرداداً نوعياً مخصصاً لمبلغ الجزاء المرتبط بنوع العذر فقط
+      if (isApproved) {
+        if (att.status === AttendanceStatus.ABSENT) {
+          updateData.status = AttendanceStatus.EXCUSED;
+        }
+
+        let currentTotalDeduction = att.salaryDeduction || 0;
+        let currentCount = att.deductionsCount || 0;
+        const breakdown = (att.deductionBreakdown as any) || {};
+
+        if (excuse.type === ExcuseType.LATE) {
+          const latePart = breakdown.late || 0;
+          if (latePart > 0) {
+            currentTotalDeduction = Math.max(0, currentTotalDeduction - latePart);
+            breakdown.late = 0;
+            currentCount = Math.max(0, currentCount - 1);
+          }
+          updateData.lateMinutes = 0;
+        } else if (excuse.type === ExcuseType.EARLY_DEPARTURE) {
+          const earlyPart = breakdown.earlyLeave || 0;
+          if (earlyPart > 0) {
+            currentTotalDeduction = Math.max(0, currentTotalDeduction - earlyPart);
+            breakdown.earlyLeave = 0;
+            currentCount = Math.max(0, currentCount - 1);
+          }
+          updateData.earlyLeaveMinutes = 0;
+        } else if (excuse.type === ExcuseType.ABSENT) {
+          const absentPart = breakdown.absent || 0;
+          if (absentPart > 0) {
+            currentTotalDeduction = Math.max(0, currentTotalDeduction - absentPart);
+            breakdown.absent = 0;
+            currentCount = Math.max(0, currentCount - 1);
+          }
+          updateData.status = AttendanceStatus.EXCUSED;
+        }
+
+        updateData.salaryDeduction = currentTotalDeduction;
+        updateData.deductionsCount = currentCount;
+        updateData.deductionBreakdown = breakdown;
       }
 
       await this.prisma.attendance.update({
@@ -348,13 +416,18 @@ if( !department ||!dto?.departmentId){
 
   // جلب الأعذار المعلقة للموظفين التابعين للمدير
   async getPendingExcuses(managerUserId: string) {
-    const manager = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId }
+    const manager = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId: managerUserId }, { id: managerUserId }] }
     });
     if (!manager) throw new ManagerProfileNotFoundException();
 
     const subordinates = await this.prisma.employeeProfile.findMany({
-      where: { managerId: manager.userId },
+      where: {
+        OR: [
+          { managerId: manager.id },
+          { department: { managerId: manager.id } },
+        ],
+      },
       select: { userId: true }
     });
     const subordinateUserIds = subordinates.map(s => s.userId);
@@ -364,7 +437,8 @@ if( !department ||!dto?.departmentId){
         isApproved: false,
         OR: [
           { submittedById: { in: subordinateUserIds } },
-          { attendance: { employeeProfile: { managerId: manager.userId } } }
+          { attendance: { employeeProfile: { managerId: manager.id } } },
+          { attendance: { employeeProfile: { department: { managerId: manager.id } } } }
         ]
       },
       include: {
@@ -383,18 +457,17 @@ if( !department ||!dto?.departmentId){
       orderBy: { createdAt: 'desc' }
     });
 
-    const enrichedExcuses = await Promise.all(
-      excuses.map(async (exc) => {
-        const submitter = await this.prisma.user.findUnique({
-          where: { id: exc.submittedById },
-          select: { fullName: true, email: true, phone: true }
-        });
-        return {
-          ...exc,
-          submitter,
-        };
-      })
-    );
+    const submitterIds = Array.from(new Set(excuses.map(e => e.submittedById).filter(Boolean)));
+    const submitters = await this.prisma.user.findMany({
+      where: { id: { in: submitterIds } },
+      select: { id: true, fullName: true, email: true, phone: true }
+    });
+    const submitterMap = new Map(submitters.map(u => [u.id, u]));
+
+    const enrichedExcuses = excuses.map((exc) => ({
+      ...exc,
+      submitter: submitterMap.get(exc.submittedById) || null,
+    }));
 
     return ResponseHelper.success(enrichedExcuses, 'تم جلب الأعذار المعلقة بنجاح');
   }
@@ -405,7 +478,6 @@ if( !department ||!dto?.departmentId){
     where: { OR:[
         {userId: employeeUserId },
          {id: employeeUserId}],
-      
         }
     });
     if (!employee) throw new EmployeeNotFoundException();
@@ -424,7 +496,7 @@ if( !department ||!dto?.departmentId){
     return ResponseHelper.success(updated, 'تم إزالة الموظف من فريقك بنجاح');
   }
 
-  async truneToDepartmentEmployee(managerId:string ,employeeUserId: string ,departmentId: string,  shiftId: string) {
+  async truneToDepartmentEmployee(managerId:string ,employeeUserId: string ,departmentId: string,  shiftId?: string) {
 
     const employee = await this.prisma.employeeProfile.findFirst({
       where: { OR:[
@@ -436,23 +508,36 @@ if( !department ||!dto?.departmentId){
 
     const mananer = await this.prisma.adminProfile.findFirst({
       where: { 
-         userId:managerId
+        OR: [{ userId: managerId }, { id: managerId }]
         }
     });
 
     if (!mananer) throw new ManagerProfileNotFoundException();
+    
 
-    if (employee && employee.managerId !== mananer.userId) throw new EmployeeNotUnderManagerException()
+    if (employee &&  employee.managerId !== mananer.id) throw new EmployeeNotUnderManagerException()
 
     if (!employee) throw new EmployeeNotFoundException();
+    
 
     const department = await this.prisma.department.findUnique({
       where: { id: departmentId }
     });
-    const shift = await this.prisma.shift.findUnique({
-      where: { id: shiftId }
-    });
     if (!department) throw new DepartmentNotFoundException();
+   console.log("department name:",department.name)
+    // إسناد الوردية تلقائياً من القسم إذا لم يُحدد
+    let resolvedShiftId = shiftId;
+    if (!resolvedShiftId) {
+      const defaultShift = await this.prisma.shift.findFirst({
+        where: { departmentsId: departmentId },
+        orderBy: { name: 'asc' },
+      });
+      if (defaultShift) resolvedShiftId = defaultShift.id;
+    }
+
+    const shift = resolvedShiftId ? await this.prisma.shift.findUnique({
+      where: { id: resolvedShiftId }
+    }) : null;
     if (!shift) throw new ShiftNotFoundException();
 
     const updated = await this.prisma.employeeProfile.update({
@@ -468,7 +553,7 @@ if( !department ||!dto?.departmentId){
   // جلب إعدادات الأتمتة والخصم للمدير
   async getManagerSettings(managerUserId: string) {
     const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
+      where: { id: managerUserId },
       select: {
         autoCheckoutEnabled: true,
         isActiveDeduction: true,
@@ -495,12 +580,12 @@ if( !department ||!dto?.departmentId){
     },
   ) {
     const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
+      where: { id: managerUserId },
     });
     if (!admin) throw new ManagerProfileNotFoundException();
 
     const updated = await this.prisma.adminProfile.update({
-      where: { userId: managerUserId },
+      where: { id: managerUserId },
       data: dto,
       select: {
         autoCheckoutEnabled: true,

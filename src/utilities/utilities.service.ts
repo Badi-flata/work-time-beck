@@ -14,6 +14,7 @@ import {
   startOfMonth,
   endOfMonth,
   differenceInHours,
+  startOfWeek,
 } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { randomUUID } from 'crypto';
@@ -57,8 +58,9 @@ export class UtilitiesService {
     status?: string,
     excludeBreakdown?: boolean,
   ): Promise<OptimizedDashboardResponse> {
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerId },
+    const admin = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId: managerId }, { id: managerId }] },
+      include:{managedDepartments:true}
     });
 
     if (!admin) {
@@ -69,10 +71,17 @@ export class UtilitiesService {
     // 1. calculateMonthlyBoundedPeriod — حساب الفترات الزمنية بدقة
     // ─────────────────────────────────────────────────────────────
     const result = this.calculatePeriod.calculateMonthlyBoundedPeriod(mode, dateAnchor, customStartDate, customEndDate);
+    const expectedWorkingDays = this.statsHelper.calculateExpectedWorkingDays(result.startDate , result.endDate ,{
+      department:{
+        weekendDays:admin.managedDepartments[0].weekendDays as [number,number],
+        workingDays:admin.managedDepartments[0].monthlyWorkingDays as number,
+      }
+    });
+
 
     // 2. استعلام جلب المرؤوسين وسجلات حضورهم ضمن الفترة المحددة
     const subordinates = mode === Modes.DAILY ? await this.prisma.employeeProfile.findMany({
-      where: { managerId: admin.userId },
+      where: { OR: [{ managerId: admin.id }, { department: { managerId: admin.id } }] },
       include: {
         user: {
           select: {
@@ -97,7 +106,7 @@ export class UtilitiesService {
       },
     })
       : await this.prisma.employeeProfile.findMany({
-        where: { managerId: admin.userId },
+        where: { OR: [{ managerId: admin.id }, { department: { managerId: admin.id } }] },
         include: {
           user: {
             select: {
@@ -143,7 +152,7 @@ export class UtilitiesService {
     }
     if (!activeShiftContext) {
       const firstDept = await this.prisma.department.findFirst({
-        where: { managerId: admin.userId },
+        where: { managerId: admin.id },
         include: { shift: { take: 1 } },
       });
       if (firstDept) {
@@ -170,7 +179,7 @@ export class UtilitiesService {
     for (const emp of subordinates) {
       const {attendances:atts , shift ,department ,user } = emp;
       const dailyBreakdown: DailyBreakdownEntry[] = [];
-      const { summary, days ,rate, label } = this.statsHelper.summarizeAttendances(atts);
+      const { summary, days ,rate, label } = this.statsHelper.summarizeAttendances(atts,expectedWorkingDays);
 
       dailyBreakdown.push(...days);
 
@@ -340,37 +349,28 @@ export class UtilitiesService {
   async fetchPeriodReport(userId: string, startDate: string , mode: Modes, employeeId?: string ) {
     const { periodLabel , startDate:start , endDate:end } = this.calculatePeriod.calculateMonthlyBoundedPeriod( mode , startDate )
 
-    let targetProfileId: string;
+    let targetProfileId= employeeId || userId;
 
-    if (employeeId) {
-      const empProfile = await this.prisma.employeeProfile.findFirst({
-        where: {
-          OR: [
-            { id: employeeId },
-            { userId: employeeId }
-          ]
-        }
-      });
-      if (!empProfile) {
-        throw new EmployeeProfileNotFoundException();
-      }
-      targetProfileId = empProfile.id;
-    } else {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        include: { employeeProfile: true },
+      const user = await this.prisma.employeeProfile.findFirst({
+        where: {OR:[ {id: targetProfileId } , {userId:targetProfileId}]}, 
+        include: { department: true },
       });
 
-      if (!user || !user.employeeProfile) {
+      if (!user ) {
         throw new EmployeeProfileNotFoundException();
       }
-      targetProfileId = user.employeeProfile.id;
-    }
+  
+    const expectedWorkingDays = this.statsHelper.calculateExpectedWorkingDays(start, end ,{
+      department:{
+        weekendDays:user.department?.weekendDays as [number,number],
+        workingDays:user.department?.monthlyWorkingDays as number,
+      }
+    });
 
     const attendances = mode === Modes.DAILY ?
     await this.prisma.attendance.findFirst({
       where: {
-        employeeProfileId: targetProfileId,
+        employeeProfileId: user.id,
         date: { gte: start, lt: end },
       },
       include:{
@@ -386,7 +386,7 @@ export class UtilitiesService {
       :
       await this.prisma.attendance.findMany({
       where: {
-        employeeProfileId : targetProfileId,
+        employeeProfileId : user.id,
         date: { gte: start, lt: end },
       },
         include:{
@@ -401,44 +401,58 @@ export class UtilitiesService {
       orderBy: { date: 'asc' },
     });
   
-    if(mode === Modes.DAILY && attendances ){
-      return attendances;
-    } else if(mode !== Modes.DAILY && Array.isArray(attendances)) {
-      const { summary, days, label, rate } = this.statsHelper.summarizeAttendances(attendances);
+    const recordsList = Array.isArray(attendances) 
+      ? attendances 
+      : (attendances ? [attendances] : []);
 
-      return {
-        periodLabel,
-        rate,
-        label,
-        summary,
-        records: days,
-      };
-    } else {
+    if (recordsList.length === 0) {
       throw new AttendanceRecordsNotFoundException(startDate, mode);
     }
+
+    const { summary, days, label, rate } = this.statsHelper.summarizeAttendances(
+      recordsList, 
+      mode === Modes.DAILY ? 1 : expectedWorkingDays
+    );
+
+    return {
+      periodLabel,
+      rate,
+      label,
+      summary,
+      records: days,
+    };
   }
  
   // ─────────────────────────────────────────────────────────────
   // automaticallyCheck - التحقق التلقائي للغياب والانصراف
   // ─────────────────────────────────────────────────────────────
-  async automaticallyCheck(userId: string): Promise<{
+  async automaticallyCheck(userId: string, isForce: boolean = false): Promise<{
     processed: number;
-    results: { id: string; employeeProfileId: string; outcome: string }[];
+    results: { id: string; employeeProfileId: string; outcome: string; details?: string }[];
     message: string;
-  }> {
+  }>
+   {
     const nowZoned = toZonedTime(Date.now(), TZ);
     const today = startOfDay(nowZoned);
     const nowMinutes = nowZoned.getHours() * 60 + nowZoned.getMinutes();
     const dayOfWeek = nowZoned.getDay();
-    // عطلة نهاية الأسبوع: الجمعة (5) والسبت (6)
-    const isWeekendDay = (dayOfWeek === 5 || dayOfWeek === 6);
 
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId },
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { adminProfile: true },
+    });
+
+    const admin = user?.adminProfile || await this.prisma.adminProfile.findFirst({
+      where: {
+        OR: [
+          { userId },
+          { id: userId },
+        ],
+      },
     });
 
     // إذا كان المدير معطلاً للانصراف التلقائي
-    if (admin && admin.autoCheckoutEnabled === false) {
+    if (admin && admin.autoCheckoutEnabled === false && !isForce) {
       return {
         processed: 0,
         results: [],
@@ -446,54 +460,136 @@ export class UtilitiesService {
       };
     }
 
+    const todayStr = format(nowZoned, 'yyyy-MM-dd');
+    const todayDate = new Date(`${todayStr}T00:00:00.000Z`);
+
+    // تاريخ الأمس للورديات العابرة لمنتصف الليل أو الحضور المفتوح
+    const yesterdayDateObj = new Date(todayDate.getTime() - 24 * 60 * 60 * 1000);
+    const yesterdayStr = format(toZonedTime(yesterdayDateObj, TZ), 'yyyy-MM-dd');
+    const yesterdayDate = new Date(`${yesterdayStr}T00:00:00.000Z`);
+
+    // إعداد شرط استعلام الموظفين التابعين للمدير أو للنظام بالكامل إذا كان سوبر أدمن
+    let whereClause: any = {};
+    if (user?.role === Role.SUPER_ADMIN && !admin) {
+      whereClause = {};
+    } else {
+      const managerIds = [userId];
+      if (admin?.userId && !managerIds.includes(admin.userId)) managerIds.push(admin.userId);
+      if (admin?.id && !managerIds.includes(admin.id)) managerIds.push(admin.id);
+
+      whereClause = {
+        OR: [
+          { managerId: { in: managerIds } },
+          { department: { managerId: { in: managerIds } } },
+          { department: { manager: { userId: { in: managerIds } } } },
+        ],
+      };
+    }
+
     const employees = await this.prisma.employeeProfile.findMany({
-      where: { managerId: userId },
+      where: whereClause,
       include: {
+        manager: {
+          include: {
+            user: {
+              select: {
+                fullName: true,
+              },
+            },
+          },
+        },
         shift: true,
         department: {
-          select: { name: true }
+          include: {
+            shift: true,
+          },
         },
         attendances: {
-          where: { date: today },
-          include: { excuses: true }
-        }
-      }
+          where: {
+            OR: [
+              { date: todayDate },
+              { date: today },
+              { date: yesterdayDate },
+              { checkIn: { not: null }, checkOut: null },
+            ],
+          },
+          orderBy: { date: 'desc' },
+          include: { excuses: true },
+        },
+      },
     });
 
-    const results: { id: string; employeeProfileId: string; outcome: string }[] = [];
+    const results: { id: string; employeeProfileId: string; outcome: string; details?: string }[] = [];
 
     for (const employee of employees) {
-      const shift = employee.shift;
+      // 1. تحديد أي سجل حضور مفتوح (سجل دخول ولم يسجل خروج)
+      const openAttendance = employee.attendances.find((a) => a.checkIn && !a.checkOut);
+
+      // 2. فحص هل يوجد سجل حضور مسجل لليوم
+      const todayAttendance = employee.attendances.find((a) => {
+        const dStr = format(new Date(a.date), 'yyyy-MM-dd');
+        return dStr === todayStr;
+      });
+
+      // 3. تحديد الوردية المعمول بها:
+      let shift = employee.shift;
+      const targetShiftId = openAttendance?.shiftId || todayAttendance?.shiftId;
+      if (targetShiftId && targetShiftId !== shift?.id) {
+        const recordedShift = await this.prisma.shift.findUnique({
+          where: { id: targetShiftId },
+        });
+        if (recordedShift) {
+          shift = recordedShift;
+        }
+      }
+
+      if (!shift && employee.department?.shift && employee.department.shift.length > 0) {
+        shift = employee.department.shift[0];
+      }
+
       if (!shift || !shift.startTime || !shift.endTime) continue;
 
       const [sh, sm] = shift.startTime.split(':').map(Number);
       const shiftStartMinutes = sh * 60 + sm;
       const [eh, em] = shift.endTime.split(':').map(Number);
       const shiftEndMinutes = eh * 60 + em;
-      const shiftEndWithGrace = shiftEndMinutes + (shift.gracePeriodMinOut ?? 30);
-
-      // التحقق من انتهاء وقت الوردية (مع دعم الورديات العابرة لمنتصف الليل)
       const isCrossDay = shiftEndMinutes < shiftStartMinutes;
-      const isShiftEnded = isCrossDay
-        ? (nowMinutes >= shiftEndWithGrace && nowMinutes < shiftStartMinutes)
-        : (nowMinutes >= shiftEndWithGrace);
+      const gracePeriodMinOut = shift.gracePeriodMinOut ?? 30;
+      const gracePeriodMinIn = shift.gracePeriodMinIn ?? 15;
+      const shiftEndWithGrace = shiftEndMinutes + gracePeriodMinOut;
 
-      // المعالجة تبدأ فقط بعد انتهاء وقت الوردية + فترة السماح
-      if (!isShiftEnded) continue;
+      // ─── الحالة الأولى: الموظف لديه سجل حضور مفتوح (سجل دخول ولم يسجل خروج) ───
+      if (openAttendance) {
+        const attendance = openAttendance;
+        const attDateStr = format(new Date(attendance.date), 'yyyy-MM-dd');
+        const isPastDayAttendance = attDateStr < todayStr;
 
-      const attendance = employee.attendances[0] || null;
+        // التحقق من انتهاء الوردية:
+        let isShiftEnded = isPastDayAttendance;
+        if (!isShiftEnded) {
+          if (isCrossDay) {
+            isShiftEnded = (nowMinutes >= shiftEndWithGrace && nowMinutes < shiftStartMinutes);
+          } else {
+            isShiftEnded = nowMinutes >= shiftEndWithGrace;
+          }
+        }
 
-      if (attendance) {
-        // حالة 1: الموظف سجل دخول ولم يسجل خروج
-        if (attendance.checkIn && !attendance.checkOut) {
-          const shiftEnd = setMilliseconds(
-            setSeconds(setMinutes(setHours(nowZoned, eh), em), 0),
+        // في حال تشغيل الفحص الإجباري (Force) أو انتهاء وقت الوردية
+        if (isShiftEnded || isForce) {
+          const attDate = attendance.date ? new Date(attendance.date) : nowZoned;
+          const attDateZoned = toZonedTime(attDate, TZ);
+          let shiftEnd = setMilliseconds(
+            setSeconds(setMinutes(setHours(attDateZoned, eh), em), 0),
             0,
           );
-          const totalWorked = Math.max(0, differenceInHours(shiftEnd, attendance.checkIn));
+          if (isCrossDay) {
+            shiftEnd = new Date(shiftEnd.getTime() + 24 * 60 * 60 * 1000);
+          }
+
+          const totalWorked = Math.max(0, differenceInHours(shiftEnd, attendance.checkIn!));
 
           const hasApprovedExcuseOut = attendance.excuses?.some(
-            (exc: any) => exc.isApproved && exc.type === ExcuseType.EARLY_DEPARTURE
+            (exc: any) => exc.isApproved && exc.type === ExcuseType.EARLY_DEPARTURE,
           );
 
           if (hasApprovedExcuseOut || (attendance as any).isExcusedOut) {
@@ -503,6 +599,7 @@ export class UtilitiesService {
                 checkOut: shiftEnd,
                 totalWorkedHours: totalWorked,
                 earlyLeaveMinutes: 0,
+               
                 adminNotes: [
                   attendance.adminNotes,
                   'خروج تلقائي - الموظف لديه عذر معتمد للخروج',
@@ -513,102 +610,131 @@ export class UtilitiesService {
             });
             await this.prisma.employeeProfile.update({
               where: { id: employee.id },
-              data: { isWorking: false }
+              data: { isWorking: false },
             });
             results.push({
               id: attendance.id,
               employeeProfileId: employee.id,
               outcome: 'EXCUSED_AUTO_OUT',
+              details: `تم الانصراف التلقائي بعذر معتمد للموظف (${totalWorked} ساعة عمل)`,
             });
-          } 
-          else {
+          } else {
+            const shiftDurationMinutes = isCrossDay
+              ? (24 * 60 - shiftStartMinutes + shiftEndMinutes)
+              : (shiftEndMinutes - shiftStartMinutes);
+            const shiftHours = shiftDurationMinutes / 60;
+            const defaultEscapyWorkedHours = Math.max(0, Math.round((shiftHours / 2) * 10) / 10);
+            const escapyEarlyLeaveMinutes = Math.round(shiftDurationMinutes / 2);
+
             await this.prisma.attendance.update({
               where: { id: attendance.id },
               data: {
                 checkOut: shiftEnd,
-                totalWorkedHours: totalWorked,
-                earlyLeaveMinutes: 0,
+                totalWorkedHours: defaultEscapyWorkedHours,
+                earlyLeaveMinutes: escapyEarlyLeaveMinutes,
                 status: AttendanceStatus.ESCAPY,
-                adminNotes: 'خروج تلقائي - مغادر دون إذن بالانصراف',
+                adminNotes: 'خروج تلقائي - مغادر دون إذن بالانصراف (احتساب نصف ساعات الوردية افتراضياً)',
               },
             });
             await this.prisma.employeeProfile.update({
               where: { id: employee.id },
-              data: { isWorking: false }
+              data: { isWorking: false },
             });
 
-            // تطبيق الخصم اليومي عند الانصراف التلقائي فقط إذا كان خيار الخصم مفعلاً لدى المدير
-            if (admin?.isActiveDeduction && admin?.earlyLeaveDeductionEnabled) {
-              await this.salaryDeductionDaily(employee.id,
-                 {
-                  autoCheckoutEnabled:admin?.autoCheckoutEnabled,
-                  isActiveDeduction:admin?.isActiveDeduction,
-                  combineDeductionsOnEndShift:admin?.combineDeductionsOnEndShift,
-                  earlyLeaveDeductionEnabled:admin?.earlyLeaveDeductionEnabled,
-                  delayDeductionEnabled:admin.delayDeductionEnabled,
-                  absentDeductionEnabled:admin?.absentDeductionEnabled,
-                });
+            // تطبيق الخصم اليومي عند الانصراف التلقائي
+            const adminPrefs = admin || {
+              autoCheckoutEnabled: true,
+              isActiveDeduction: false,
+              earlyLeaveDeductionEnabled: true,
+              combineDeductionsOnEndShift: true,
+              delayDeductionEnabled: true,
+              absentDeductionEnabled: true,
+            };
+
+            if (adminPrefs.isActiveDeduction && adminPrefs.earlyLeaveDeductionEnabled) {
+              await this.salaryDeductionDaily(employee.id, adminPrefs, attendance.id);
             }
 
             results.push({
               id: attendance.id,
               employeeProfileId: employee.id,
               outcome: 'ESCAPY',
+              details: `خروج تلقائي (مغادرة دون إذن) واحتساب ${defaultEscapyWorkedHours} ساعة والخصم المترتب`,
             });
           }
         }
-      } else {
-        // حالة 2: الموظف لم يسجل أي حضور اليوم
-        // إذا كان اليوم عطلة نهاية أسبوع، لا نعتبره غائباً
-        if (isWeekendDay) continue;
+      }
+      // ─── الحالة الثانية: الموظف لم يسجل أي حضور اليوم إطلاقاً (غياب) ───
+      else if (!todayAttendance) {
+        const weekendDays = employee.department?.weekendDays || [5, 6];
+        if (weekendDays.includes(dayOfWeek)) continue;
 
-        const newAttendance = await this.prisma.attendance.create({
-          data: {
-            id: randomUUID(),
-            date: today,
-            status: AttendanceStatus.ABSENT,
-            employeeProfileId: employee.id,
-            shiftName: shift.name,
-            shiftStart: shift.startTime,
-            shiftEnd: shift.endTime,
-            graceIn: shift.gracePeriodMinIn,
-            graceOut: shift.gracePeriodMinOut,
-            managerName: shift.managerName || 'بدون مدير',
-            departmentName: employee.department?.name || 'بدون قسم',
-            adminNotes: 'غياب تلقائي - لم يسجل حضور اليوم',
+        // التحقق من انتهاء الوردية أو انقضاء فترة السماح للدخول
+        const isShiftEnded = isCrossDay
+          ? (nowMinutes >= shiftEndWithGrace && nowMinutes < shiftStartMinutes)
+          : (nowMinutes >= shiftEndWithGrace);
+
+        const checkInGraceExpired = nowMinutes >= (shiftStartMinutes + gracePeriodMinIn);
+
+        // المعالجة تبدأ عند انتهاء الوردية، أو إذا تم التشغيل الإجباري بعد انقضاء فترة السماح
+        if (isShiftEnded || (isForce && checkInGraceExpired)) {
+          const newAttendance = await this.prisma.attendance.create({
+            data: {
+              id: randomUUID(),
+              date: todayDate,
+              status: AttendanceStatus.ABSENT,
+              employeeProfileId: employee.id,
+              shiftId: shift.id,
+              shiftName: shift.name,
+              shiftStart: shift.startTime,
+              shiftEnd: shift.endTime,
+              graceIn: shift.gracePeriodMinIn,
+              graceOut: shift.gracePeriodMinOut,
+              managerName: shift.managerName || employee.manager?.user?.fullName || 'بدون مدير',
+              departmentName: employee.department?.name || 'بدون قسم',
+              adminNotes: 'غياب تلقائي - لم يسجل حضور اليوم',
+            },
+          });
+
+          const adminPrefs = admin || {
+            isActiveDeduction: true,
+            absentDeductionEnabled: true,
+            autoCheckoutEnabled: true,
+            combineDeductionsOnEndShift: true,
+            delayDeductionEnabled: true,
+            earlyLeaveDeductionEnabled: true,
+          };
+
+          if (adminPrefs.isActiveDeduction && adminPrefs.absentDeductionEnabled) {
+            await this.salaryDeductionDaily(employee.id, adminPrefs, newAttendance.id);
           }
-        });
-          if (admin?.isActiveDeduction && admin?.absentDeductionEnabled) {
-              await this.salaryDeductionDaily(employee.id,
-                 {
-                  autoCheckoutEnabled:admin?.autoCheckoutEnabled,
-                  isActiveDeduction:admin?.isActiveDeduction,
-                  combineDeductionsOnEndShift:admin?.combineDeductionsOnEndShift,
-                  earlyLeaveDeductionEnabled:admin?.earlyLeaveDeductionEnabled,
-                  delayDeductionEnabled:admin.delayDeductionEnabled,
-                  absentDeductionEnabled:admin?.absentDeductionEnabled,
-                });
-            }
-        results.push({
-          id: newAttendance.id,
-          employeeProfileId: employee.id,
-          outcome: 'ABSENT',
-        });
+
+          results.push({
+            id: newAttendance.id,
+            employeeProfileId: employee.id,
+            outcome: 'ABSENT',
+            details: `تسجيل غياب تلقائي للموظف لعدم الحضور وتطبيق خصم الغياب المقابل`,
+          });
+        }
       }
     }
- 
-     return {
-       processed: results.length,
-       results,
-       message: `تمت المعالجة التلقائية لـ ${results.length} سجل (غياب/انصراف)`,
-     };
-   }
+
+    return {
+      processed: results.length,
+      results,
+      message: results.length > 0
+        ? `تمت المعالجة التلقائية لـ ${results.length} موظف بنجاح (خروج تلقائي/غياب)`
+        : 'لا توجد سجلات تحتاج لمعالجة تلقائية حالياً (جميع الموظفين منضبطون أو خارج أوقات انتهاء الورديات)',
+    };
+  }
 
   // ─────────────────────────────────────────────────────────────
   // حالة الحضور اليومي للموظف
   // ─────────────────────────────────────────────────────────────
   async getTodayAttendanceStatus(userId: string) {
-    const today = startOfDay(toZonedTime(Date.now(), TZ));
+    const nowZoned = toZonedTime(Date.now(), TZ);
+    const todayStr = format(nowZoned, 'yyyy-MM-dd');
+    const today = new Date(`${todayStr}T00:00:00.000Z`);
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -652,7 +778,7 @@ export class UtilitiesService {
       if (search && search.trim() !== '') {
         where.OR = [
           { fullName: { contains: search } },
-          { email: { contains: search} },
+          { email: { contains: search } },
           { phone: { contains: search } },
         ];
       }
@@ -706,7 +832,7 @@ export class UtilitiesService {
                   }
                 }
               };
-            } else if (u.adminProfile) {
+            } else if (u.adminProfile && (u.role === "MANAGER"|| u.role === "SUPER_ADMIN")) {
               const enriched = await this.statsHelper.computeOrganizationDiscipline(u.id);
               return {
                 ...u,
@@ -724,7 +850,6 @@ export class UtilitiesService {
           })
         );
       }
-
 
       return {
         data: enrichedResults,
@@ -753,17 +878,33 @@ export class UtilitiesService {
       earlyLeaveDeductionEnabled?: boolean;
       absentDeductionEnabled?:boolean;
     },
+    targetAttendanceId?: string,
   ): Promise<{ deducted: number; newTotalDeduction: number; breakdown: Record<string, number> }> {
+    const todayStr = format(toZonedTime(Date.now(), TZ), 'yyyy-MM-dd');
+    const todayDate = new Date(`${todayStr}T00:00:00.000Z`);
     const today = startOfDay(toZonedTime(Date.now(), TZ));
 
     const employee: any = await this.prisma.employeeProfile.findUnique({
       where: { id: employeeId },
       include: {
         manager: true,
-        attendances: {
-          where: { date: today },
-          include: { excuses: true },
-        },
+        department: true,
+        shift: true,
+        attendances: targetAttendanceId
+          ? {
+              where: { id: targetAttendanceId },
+              include: { excuses: true },
+            }
+          : {
+              where: {
+                OR: [
+                  { date: todayDate },
+                  { date: today },
+                ],
+              },
+              orderBy: { date: 'desc' },
+              include: { excuses: true },
+            },
       },
     });
 
@@ -795,9 +936,23 @@ export class UtilitiesService {
       };
     }
 
+    const dept = employee.department;
+    const monthlyDays = dept?.monthlyWorkingDays && dept.monthlyWorkingDays > 0 ? dept.monthlyWorkingDays : 22;
     const baseSalary: number = employee.salary ?? 0;
-    const minuteRate = baseSalary / (22 * 8 * 60);
-    const dailyRate = baseSalary / 22;
+
+    let shiftHours = 8;
+    if (employee.shift?.startTime && employee.shift?.endTime) {
+      const [sh, sm] = employee.shift.startTime.split(':').map(Number);
+      const [eh, em] = employee.shift.endTime.split(':').map(Number);
+      const sMin = sh * 60 + sm;
+      const eMin = eh * 60 + em;
+      const dur = eMin < sMin ? (24 * 60 - sMin + eMin) : (eMin - sMin);
+      if (dur > 0) shiftHours = dur / 60;
+    }
+
+    const hourlyRate = baseSalary / (monthlyDays * shiftHours);
+    const minuteRate = hourlyRate / 60;
+    const dailyRate = baseSalary / monthlyDays;
 
     const { status, excuses = [], delayMinutes = 0, earlyLeaveMinutes = 0 } = todayAttendance;
 
@@ -807,66 +962,63 @@ export class UtilitiesService {
     const hasApprovedEarlyExcuse = approvedExcuses.some((e: any) => e.type === 'EARLY_DEPARTURE');
 
     const breakdown: Record<string, number> = {};
-    let todayDeduction = 0;
+    let lateDeduction = 0;
+    let earlyLeaveDeduction = 0;
+    let absentDeduction = 0;
 
-    // combine deductions on end shift
-    if(admin.combineDeductionsOnEndShift === true && !hasApprovedAbsentExcuse && !hasApprovedEarlyExcuse && !hasApprovedLateExcuse){
-    //  combine between late and early leave deductions
-      if( admin.delayDeductionEnabled === true && delayMinutes >0
-       && admin.earlyLeaveDeductionEnabled === true  && status ==="ESCAPY"  ){
-      // late
-        const lateDeduction = delayMinutes >0 ? Math.ceil(delayMinutes * minuteRate):0;
-        breakdown.lateDeduction = lateDeduction;
-        
-        //  early leave
-        const earlyLeaveDeduction = earlyLeaveMinutes> 0? Math.ceil(earlyLeaveMinutes * minuteRate):0
-        breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
-
-        todayDeduction += (lateDeduction + earlyLeaveDeduction);
+    // 1. خصم التأخير: أولوية لقيمة القسم، أو احتساب ديناميكي بمعدل ساعة العمل
+    if (admin.delayDeductionEnabled !== false && delayMinutes > 0 && !hasApprovedLateExcuse) {
+      if (dept?.latePenaltyAmount && dept.latePenaltyAmount > 0) {
+        lateDeduction = Math.round(dept.latePenaltyAmount);
+      } else {
+        lateDeduction = Math.ceil(delayMinutes * minuteRate);
       }
-      //  absent deduction only
-      if(admin.absentDeductionEnabled === true && status === 'ABSENT'){
-        const absentDeduction = Math.ceil(dailyRate);
-        breakdown.absentDeduction = absentDeduction;
-        todayDeduction += absentDeduction;
-      }
-      //  early leave deduction only
-      if(admin.delayDeductionEnabled === true  && status === 'ESCAPY'  ){
-      const earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
-      breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
-      todayDeduction += earlyLeaveDeduction;
-      }
-      //  late deduction only
-      if(admin.delayDeductionEnabled === true && status === 'LATE' && delayMinutes > 0 ){
-      const lateDeduction = Math.ceil(delayMinutes * minuteRate);
-      breakdown.lateDeduction = lateDeduction;
-      todayDeduction += lateDeduction;
-      }
-
+      breakdown.late = lateDeduction;
     }
 
-    // 1. خصم التأخير (يُطبق فقط إذا كان delayDeductionEnabled مفعلاً)
-    if (admin.combineDeductionsOnEndShift === false && admin.delayDeductionEnabled === true && status === 'LATE' && delayMinutes > 0 && !hasApprovedLateExcuse) {
-      const lateDeduction = Math.ceil(delayMinutes * minuteRate);
-      breakdown.lateDeduction = lateDeduction;
-      todayDeduction += lateDeduction;
-    }
-    
-
-    // 2. خصم المغادرة المبكرة (يُطبق فقط إذا كان earlyLeaveDeductionEnabled مفعلاً)
-    if (admin.combineDeductionsOnEndShift === false && admin.earlyLeaveDeductionEnabled !== false && status === "ESCAPY" && earlyLeaveMinutes > 0 && !hasApprovedEarlyExcuse) {
-      const earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
-      breakdown.earlyLeaveDeduction = earlyLeaveDeduction;
-      todayDeduction += earlyLeaveDeduction;
+    // 2. خصم المغادرة المبكرة أو الهروب
+    if (admin.earlyLeaveDeductionEnabled !== false && !hasApprovedEarlyExcuse) {
+      if (dept?.earlyLeavePenaltyAmount && dept.earlyLeavePenaltyAmount > 0) {
+        earlyLeaveDeduction = Math.round(dept.earlyLeavePenaltyAmount);
+      } else if (earlyLeaveMinutes > 0) {
+        earlyLeaveDeduction = Math.ceil(earlyLeaveMinutes * minuteRate);
+      } else if (status === AttendanceStatus.ESCAPY) {
+        earlyLeaveDeduction = Math.ceil(dailyRate / 2);
+      }
+      if (earlyLeaveDeduction > 0) {
+        breakdown.earlyLeave = earlyLeaveDeduction;
+      }
     }
 
     // 3. خصم الغياب
-    if (admin.combineDeductionsOnEndShift === false && admin.absentDeductionEnabled === true &&status === 'ABSENT' && !hasApprovedAbsentExcuse) {
-      const absentDeduction = Math.ceil(dailyRate);
-      breakdown.absentDeduction = absentDeduction;
-      todayDeduction += absentDeduction;
+    if (admin.absentDeductionEnabled !== false && status === AttendanceStatus.ABSENT && !hasApprovedAbsentExcuse) {
+      if (dept?.absentPenaltyAmount && dept.absentPenaltyAmount > 0) {
+        absentDeduction = Math.round(dept.absentPenaltyAmount);
+      } else {
+        absentDeduction = Math.ceil(dailyRate);
+      }
+      breakdown.absent = absentDeduction;
     }
 
+    let appliedCount = 0;
+    if (lateDeduction > 0) appliedCount++;
+    if (earlyLeaveDeduction > 0) appliedCount++;
+    if (absentDeduction > 0) appliedCount++;
+
+    let todayDeduction = 0;
+    if (admin.combineDeductionsOnEndShift === true) {
+      // دمج كافة الخصومات المستحقة لليوم معاً
+      todayDeduction = lateDeduction + earlyLeaveDeduction + absentDeduction;
+    } else {
+      // تطبيق الخصم الأكبر أو ذو الأولوية
+      if (absentDeduction > 0) {
+        todayDeduction = absentDeduction;
+      } else if (earlyLeaveDeduction > 0) {
+        todayDeduction = earlyLeaveDeduction;
+      } else {
+        todayDeduction = lateDeduction;
+      }
+    }
 
     if (todayDeduction === 0) {
       return {
@@ -878,7 +1030,11 @@ export class UtilitiesService {
 
     await this.prisma.attendance.update({
       where: { id: todayAttendance.id },
-      data: { salaryDeduction: todayDeduction },
+      data: {
+        salaryDeduction: todayDeduction,
+        deductionsCount: appliedCount,
+        deductionBreakdown: breakdown,
+      },
     });
 
     return {

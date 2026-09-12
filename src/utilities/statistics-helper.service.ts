@@ -16,6 +16,7 @@ import {
 } from './types/statistics.types';
 import { DisciplineRating, Modes } from './types/dashboard-registry.types';
 import { CalculatePeriodService } from './calculate-period.service';
+import { ManagerProfileNotFoundException } from '../core/domain-exceptions/department.exceptions';
 
 const TZ = 'Asia/Riyadh';
 
@@ -35,7 +36,7 @@ export class StatisticsHelperService {
     endDate?: Date,
     options?: {
       shift?: { weekendDays?: number[]; workingDays?: number[] };
-      department?: { weekendDays?: number[]; workingDays?: number[] };
+      department?: { weekendDays?: number[]; workingDays?: number };
       customWeekendDays?: number[];
       customHolidays?: string[];
     }
@@ -43,9 +44,9 @@ export class StatisticsHelperService {
     const end = endDate ? new Date(endDate) : new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
     // استخراج أيام العطلة الأسبوعية: من الوردية أو القسم أو الخيارات أو الافتراضي (الجمعة 5 والسبت 6)
     const weekendDays: number[] =
+    options?.department?.weekendDays ||
       options?.customWeekendDays ||
       options?.shift?.weekendDays ||
-      options?.department?.weekendDays ||
       [5, 6];
 
     const holidaysSet = new Set(options?.customHolidays || []);
@@ -77,7 +78,7 @@ export class StatisticsHelperService {
   // تأخذ مصفوفة سجلات حضور خام وتُعيد ملخصاً إحصائياً موحداً بتمريرة واحدة O(n)
   summarizeAttendances(
     attendances: any[],
-    expectedWorkingDays?: number,
+    expectedWorkingDays: number =22,
     shiftName?: string,
   ): AttendanceSummary {
     const totalDays = attendances.length;
@@ -232,14 +233,23 @@ export class StatisticsHelperService {
       },
     });
 
-    const expectedWorkingDays = this.calculateExpectedWorkingDays(
+    const nowUtc = new Date();
+    const isCurrentPeriod = !endDate || endDate > nowUtc;
+    const effectiveEndDate = isCurrentPeriod ? nowUtc : endDate;
+  
+    const dept = employeeProfile?.department;
+    let expectedWorkingDays = this.calculateExpectedWorkingDays(
       startDate,
-      endDate,
+      effectiveEndDate,
       {
         shift: employeeProfile?.shift as any,
-        department: employeeProfile?.department as any,
+        department: dept as any,
       }
     );
+
+    if (!isCurrentPeriod && dept?.monthlyWorkingDays && dept.monthlyWorkingDays > 0) {
+      expectedWorkingDays = dept.monthlyWorkingDays;
+    }
 
     const dateFilter: any = { gte: startDate };
     if (endDate) {
@@ -278,26 +288,27 @@ export class StatisticsHelperService {
   // ═══════════════════════════════════════════════════════════════
   async computeOrganizationDiscipline(
     managerUserId: string,
-    mode: Modes = Modes.MONTHLY,
+    mode: Modes = Modes.ALL,
     dateAnchor?: string,
     departmentId?: string,
   ) {
-    const admin = await this.prisma.adminProfile.findUnique({
-      where: { userId: managerUserId },
+
+    const admin = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ userId: managerUserId }, { id: managerUserId }] },
     });
+
     if (!admin) {
-      return {
-        organizationRate: 0,
-        organizationLabel: 'NEEDS_IMPROVEMENT' as DisciplineRating,
-        periodCountDiscipline: '',
-        employeeRates: [],
-      };
+      throw new ManagerProfileNotFoundException();
     }
 
-    const whereClause: any = { managerId: admin.userId };
-    if (departmentId) {
-      whereClause.departmentId = departmentId;
-    }
+    const whereClause: any = departmentId
+      ? { departmentId }
+      : {
+          OR: [
+            { managerId: admin.id },
+            { department: { managerId: admin.id } },
+          ],
+        };
 
     const employees = await this.prisma.employeeProfile.findMany({
       where: whereClause,
@@ -334,7 +345,7 @@ export class StatisticsHelperService {
     const allAttendances = await this.prisma.attendance.findMany({
       where: {
         employeeProfileId: { in: employeeIds },
-        date: dateFilter,
+        date: {gte:startDate,lt:endDate},
       },
       include: {
         excuses: true,
@@ -359,7 +370,7 @@ export class StatisticsHelperService {
 
     let totalRate = 0;
 
-    for (const emp of employees) {
+  for (const emp of employees) {
       const empAttendances = attendanceMap.get(emp.id) || [];
       const expectedWorkingDays = this.calculateExpectedWorkingDays(
         startDate,
