@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException , UnauthorizedException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException , UnauthorizedException, ForbiddenException, BadRequestException, InternalServerErrorException, HttpException } from '@nestjs/common';
 import {
   startOfDay,
   setHours,
@@ -12,12 +12,13 @@ import {
 } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { PrismaService } from '../prisma/prisma.service';
-import { AttendanceStatus, ExcuseType ,Role } from '@prisma/client';
+import { AttendanceStatus, ExcuseType ,Role, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { SubmitExcuseDto } from './dto/submit-excuse.dto';
 import { UtilitiesService } from '../utilities/utilities.service';
 import { AlreadyCheckedInException, AlreadyCheckedOutException, CheckOutBeforeCheckInException, CheckInExpiredException, CheckOutExpiredException } from '../core/domain-exceptions/attendance.exceptions';
 import { ResponseHelper } from '../core/helpers/response.helper';
+import { of } from 'rxjs';
 
 const TZ = 'Asia/Riyadh';
 
@@ -40,8 +41,8 @@ export class AttendanceService {
          } 
    ) {
      try {
-       const employee = await this.prisma.employeeProfile.findUnique({
-         where: { userId: employeeId },
+       const employee = await this.prisma.employeeProfile.findFirst({
+         where: { OR: [{ id: employeeId }, { userId: employeeId }] },
          select: {
            id: true,
            userId: true,
@@ -63,6 +64,9 @@ export class AttendanceService {
        const fullName = employee.manager?.user?.fullName;
        const departmentName = employee.department?.name;
 
+       const serverZoned = toZonedTime(new Date(), TZ);
+       const todayStr = format(serverZoned, 'yyyy-MM-dd');
+
        let checkInDate: Date;
        try {
          checkInDate = parseISO(checkIn);
@@ -72,7 +76,13 @@ export class AttendanceService {
        } catch {
          checkInDate = new Date();
        }
+
        const nowZoned = toZonedTime(checkInDate, TZ);
+       const checkInDateStr = format(nowZoned, 'yyyy-MM-dd');
+
+       if (checkInDateStr !== todayStr) {
+         throw new CheckInExpiredException();
+       }
 
        const shift = await this.prisma.shift.findUnique({
          where: { id: shiftId },
@@ -94,38 +104,32 @@ export class AttendanceService {
          endA.setDate(endA.getDate() + 1);
        }
 
-       const startB = new Date(nowZoned);
-       startB.setDate(startB.getDate() - 1);
-       startB.setHours(startH, startM, 0, 0);
-       const endB = new Date(startB);
-       endB.setHours(endH, endM, 0, 0);
+       let shiftStart: Date = startA;
+       let shiftEnd: Date = endA;
+
        if (isCrossDay) {
+         const startB = new Date(nowZoned);
+         startB.setDate(startB.getDate() - 1);
+         startB.setHours(startH, startM, 0, 0);
+         const endB = new Date(startB);
+         endB.setHours(endH, endM, 0, 0);
          endB.setDate(endB.getDate() + 1);
+
+         const PREP_MS = 2 * 60 * 60 * 1000; // 2 hours window
+         if (nowZoned >= new Date(startB.getTime() - PREP_MS) && nowZoned <= endB) {
+           shiftStart = startB;
+           shiftEnd = endB;
+         }
        }
 
-       const PREP_MS = 2 * 60 * 60 * 1000; // 2 hours window
-       let shiftStart: Date;
-       let shiftEnd: Date;
-
-       if (nowZoned >= new Date(startB.getTime() - PREP_MS) && nowZoned <= endB) {
-         shiftStart = startB;
-         shiftEnd = endB;
-       } else {
-         shiftStart = startA;
-         shiftEnd = endA;
-       }
+       const recordDateStr = format(shiftStart, 'yyyy-MM-dd');
+       const recordDate = new Date(`${recordDateStr}T00:00:00.000Z`);
 
        const attendance = await this.prisma.attendance.findUnique({
-         where: { employeeProfileId_date: { employeeProfileId: employee.id, date: startOfDay(shiftStart) } },
+         where: { employeeProfileId_date: { employeeProfileId: employee.id, date: recordDate } },
        });
        if (attendance) {
          throw new AlreadyCheckedInException();
-       }
-
-       const serverZoned = toZonedTime(new Date(), TZ);
-       const onThisDay = format(nowZoned, 'yyyy-MM-dd') === format(serverZoned, 'yyyy-MM-dd');
-       if (!onThisDay) {
-         throw new ForbiddenException("لا يمكن تسجيل الحضور في سجل قديم");
        }
 
        // Calculate late minutes
@@ -136,9 +140,8 @@ export class AttendanceService {
 
        let status: AttendanceStatus = isLate ? AttendanceStatus.LATE : AttendanceStatus.ON_TIME;
        
-       const dayStart = startOfDay(shiftStart);
-       const dayEnd = new Date(dayStart);
-       dayEnd.setHours(23, 59, 59, 999);
+       const dayStart = new Date(`${recordDateStr}T00:00:00.000Z`);
+       const dayEnd = new Date(`${recordDateStr}T23:59:59.999Z`);
 
        const Excused = await this.prisma.excuse.findFirst({
          where: {
@@ -166,26 +169,35 @@ export class AttendanceService {
          data: { isWorking: true },
        })
 
-       const record = await this.prisma.attendance.create({
-         data: {
-           id: randomUUID(),
-           date: startOfDay(shiftStart),
-           checkIn: checkInDate,
-           status,
-           managerName: fullName,
-           departmentName: departmentName,
-           shiftName: shift.name,
-           shiftStart: shift.startTime,
-           shiftEnd: shift.endTime,
-           graceIn: shift.gracePeriodMinIn,
-           graceOut: shift.gracePeriodMinOut,
-           lateMinutes: lateMinutes,
-           delayMinutes: lateMinutes,
-           employeeNote: notes ?? null,
-           employeeProfileId: employee.id,
-         },
-         include: { excuses: { select: { type: true, reason: true, isApproved: true } } },
-       });
+        let record;
+        try {
+          record = await this.prisma.attendance.create({
+            data: {
+              id: randomUUID(),
+              date: recordDate,
+              checkIn: checkInDate,
+              status,
+              managerName: fullName,
+              departmentName: departmentName,
+              shiftId: shift.id,
+              shiftName: shift.name,
+              shiftStart: shift.startTime,
+              shiftEnd: shift.endTime,
+              graceIn: shift.gracePeriodMinIn,
+              graceOut: shift.gracePeriodMinOut,
+              lateMinutes: lateMinutes,
+              delayMinutes: lateMinutes,
+              employeeNote: notes ?? null,
+              employeeProfileId: employee.id,
+            },
+            include: { excuses: { select: { type: true, reason: true, isApproved: true } } },
+          });
+        } catch (err: any) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            throw new AlreadyCheckedInException();
+          }
+          throw err;
+        }
 
        if (Excused) {
          await this.prisma.excuse.update({
@@ -199,8 +211,10 @@ export class AttendanceService {
        ) {
               await this.utiltie.salaryDeductionDaily(employee.id,
                  {
+                  // swetch actions status
                   autoCheckoutEnabled:admin?.autoCheckoutEnabled,
                   isActiveDeduction:admin?.isActiveDeduction,
+                  // deductions actions
                   combineDeductionsOnEndShift:admin?.combineDeductionsOnEndShift,
                   earlyLeaveDeductionEnabled:admin?.earlyLeaveDeductionEnabled,
                   delayDeductionEnabled:admin.delayDeductionEnabled,
@@ -242,8 +256,8 @@ export class AttendanceService {
       } | null,
     ) {
       try {
-        const employee = await this.prisma.employeeProfile.findUnique({
-          where: { userId: employeeId },
+        const employee = await this.prisma.employeeProfile.findFirst({
+          where: { OR: [{ id: employeeId }, { userId: employeeId }] },
           select: {
             id: true,
             userId: true,
@@ -271,16 +285,24 @@ export class AttendanceService {
           throw new AlreadyCheckedOutException();
         }
  
-        const shift = await this.prisma.shift.findUnique({
-          where: { id: shiftId },
-        });
-        if (!shift) {
+        const effectiveShiftId = attendance.shiftId || shiftId;
+        const shift = effectiveShiftId
+          ? await this.prisma.shift.findUnique({ where: { id: effectiveShiftId } })
+          : null;
+       
+        let startH = 8, startM = 0, endH = 16, endM = 0;
+        let isCrossDay = false;
+        if (shift) {
+          [startH, startM] = shift.startTime.split(':').map(Number);
+          [endH, endM] = shift.endTime.split(':').map(Number);
+          isCrossDay = endH < startH || (endH === startH && endM <= startM);
+        } else if (attendance.shiftStart && attendance.shiftEnd) {
+          [startH, startM] = attendance.shiftStart.split(':').map(Number);
+          [endH, endM] = attendance.shiftEnd.split(':').map(Number);
+          isCrossDay = endH < startH || (endH === startH && endM <= startM);
+        } else {
           throw new NotFoundException('لم يتم العثور على الوردية');
         }
-       
-        const [startH, startM] = shift.startTime.split(':').map(Number);
-        const [endH, endM] = shift.endTime.split(':').map(Number);
-        const isCrossDay = endH < startH || (endH === startH && endM <= startM);
  
         // Same-day check or next-day check for cross-day shift
         const attendDateStr = format(attendance.date, 'yyyy-MM-dd');
@@ -386,10 +408,10 @@ export class AttendanceService {
         );
       } catch (err: any) {
         console.log("التفاصيل:", err);
-        if (err.status) {
+        if (err instanceof HttpException) {
           throw err;
         }
-        throw new Error(err.message || 'حدث خطأ في تسجيل الانصراف');
+        throw new InternalServerErrorException(err.message || 'حدث خطأ في تسجيل الانصراف');
       }
     }
 
@@ -399,6 +421,8 @@ export class AttendanceService {
    // ─────────────────────────────────────────────────────────────
       async fetchSourceData(userId: string,  date?:string ,employeeId?: string) {
         const targetId = employeeId || userId;
+        
+        // console.log("🚀 ~ AttendanceService ~ fetchSourceData ~ targetId:", targetId)
         const employee = await this.prisma.employeeProfile.findFirst({
           where: {
             OR: [
@@ -427,6 +451,7 @@ export class AttendanceService {
             },
             department:{
               select:{
+                id: true,
                 name:true
               }
             },
@@ -441,49 +466,66 @@ export class AttendanceService {
           throw new NotFoundException('لم يتم العثور على الموظف');
         }
 
-        let targetDate: Date;
-        if (date) {
-          try {
-            targetDate = toZonedTime(parseISO(date), TZ);
-          } catch {
-            targetDate = toZonedTime(new Date(), TZ);
-          }
-        } else {
-          targetDate = toZonedTime(new Date(), TZ);
-        }
-        const time = startOfDay(targetDate);
-        const periodDate = format(targetDate, 'yyyy-MM-dd');
+        const serverZoned = toZonedTime(new Date(), TZ);
+        const todayStr = format(serverZoned, 'yyyy-MM-dd');
+        const targetDateStr = date ? date : todayStr;
+        const queryDate = new Date(`${targetDateStr}T00:00:00.000Z`);
+        const periodDate = targetDateStr;
 
         const attendReport = await this.prisma.attendance.findUnique({
-          where:{employeeProfileId_date: {  employeeProfileId:employee.id ,date:time}},
-          include:{
-            excuses:{
-              select:{
-                type:true,
-                reason:true,
-                isApproved:true
+          where: { employeeProfileId_date: { employeeProfileId: employee.id, date: queryDate } },
+          include: {
+            excuses: {
+              select: {
+                type: true,
+                reason: true,
+                isApproved: true,
               }
             }
           }
-        }) || null;
-        
+        }) || null; 
+
+
+        // 1. ربط الموظف بالقسم في حال عدم وجود قسم
+        let department = employee.department;
+        if (!department) {
+          const firstDept = await this.prisma.department.findFirst({ orderBy: { name: 'asc' } }) || null;
+          if (firstDept) {
+            department = { id: firstDept.id, name: firstDept.name };
+            await this.prisma.employeeProfile.update({
+              where: { id: employee.id },
+              data: { departmentId: firstDept.id },
+            });
+          }
+        }
+
+        // 2. الوردية الرسمية المعتمدة للموظف حصراً (بدون استبدال بالـ demo)
+        // Shift Fallback: إذا لم يملك الموظف وردية مباشرة، يتم استخدام وردية القسم
+        let officialShift = employee.shift;
+        if (!officialShift && department) {
+          const deptShifts = await this.prisma.shift.findMany({
+            where: { departmentsId: department.id },
+            take: 1, orderBy: { name: 'asc' },
+          });
+          if (deptShifts.length > 0) officialShift = deptShifts[0];
+        }
         const name = employee.user?.fullName || '';
-        const departmentName = attendReport ? attendReport.departmentName : employee.department?.name ;
-        const managerName = attendReport ? attendReport.managerName : employee.manager?.user?.fullName ;
-        const shift = employee.shift;
+        const departmentName = attendReport ? attendReport.departmentName : (department?.name || '');
+        const managerName = attendReport ? attendReport.managerName : (employee.manager?.user?.fullName || '');
 
         const data = {
           periodDate,
           name,
           departmentName,
           managerName,
-          shift: shift ? {
-            shiftId: shift.id,
-            name: attendReport?.shiftName || shift?.name,
-            startTime: attendReport?.shiftStart || shift.startTime,
-            endTime: attendReport?.shiftEnd || shift.endTime,
-            gracePeriodMinIn: attendReport?.graceIn || shift?.gracePeriodMinIn,
-            gracePeriodMinOut: attendReport?.graceOut || shift.gracePeriodMinOut,
+          shift: officialShift ? {
+            shiftId: officialShift.id,
+            name: attendReport?.shiftName || officialShift?.name,
+            startTime: attendReport?.shiftStart || officialShift.startTime,
+            endTime: attendReport?.shiftEnd || officialShift.endTime,
+            gracePeriodMinIn: attendReport?.graceIn ?? officialShift?.gracePeriodMinIn ?? 15,
+            gracePeriodMinOut: attendReport?.graceOut ?? officialShift?.gracePeriodMinOut ?? 30,
+            isDemo: false,
           } : null,
           CheckValue: attendReport ? {
             id: attendReport.id,
@@ -499,10 +541,166 @@ export class AttendanceService {
         };
 
         return ResponseHelper.success(
-         { data,
-          message:` تم جلب البيانات الاولية لسجيل الحضور بنجاح,  ${attendReport ? "مع سجل الحضور لليوم" : " تنويه:مامن سجل حضور لليوم حتى الأن"}`
-       },'success' );
+          data,
+          `تم جلب البيانات الأولية لسجل الحضور بنجاح, ${attendReport ? 'مع سجل الحضور لليوم' : 'تنويه: لا يوجد سجل حضور لليوم حتى الآن'}`
+        );
       }
+
+    // ─────────────────────────────────────────────────────────────
+    // getOrCreateDemoShift - مسار جلب أو توليد الوردية التجريبية (10 دقائق) المعزولة
+    // ─────────────────────────────────────────────────────────────
+    async getOrCreateDemoShift(userId: string, employeeId?: string) {
+      const targetId = employeeId || userId;
+      const employee = await this.prisma.employeeProfile.findFirst({
+        where: {
+          OR: [{ id: targetId }, { userId: targetId }],
+        },
+        include: { department: true, manager: { select: { user: { select: { fullName: true } } } }, user: true },
+      });
+      if (!employee) {
+        throw new NotFoundException('لم يتم العثور على الموظف');
+      }
+
+      let department = employee.department;
+      if (!department) {
+        let firstDept = await this.prisma.department.findFirst({ orderBy: { name: 'asc' } }) || null;
+        if (!firstDept) {
+          firstDept = await this.prisma.department.create({
+            data: {
+              name: 'القسم العام',
+              managerId: employee.managerId || employee.userId,
+            },
+          });
+        }
+        department = firstDept;
+      }
+
+      let demoShift: any = await this.prisma.shift.findFirst({
+        where: {
+          departmentsId: department.id,
+          OR: [
+            { name: { contains: '10' } },
+            { name: { contains: 'تجريبية' } },
+            { name: { contains: 'التفاعلية' } },
+          ],
+        },
+      });
+
+      const serverZoned = toZonedTime(new Date(), TZ);
+      const todayStr = format(serverZoned, 'yyyy-MM-dd');
+      const queryDate = new Date(`${todayStr}T00:00:00.000Z`);
+
+      // فحص هل يوجد سجل حضور للـ demo اليوم لتثبيت التوقيت
+      const demoAttendance = await this.prisma.attendance.findFirst({
+        where: {
+          employeeProfileId: employee.id,
+          date: queryDate,
+          shiftId: demoShift?.id || 'demo-placeholder',
+        },
+        include: { excuses: true },
+      });
+      const officialAttendance = await this.prisma.attendance.findUnique({
+        where: { employeeProfileId_date:{
+          employeeProfileId: employee.id,
+          date: queryDate,}
+        },
+        select:{
+          id: true,
+          date:true,
+          status: true,
+          shiftId:true,
+          shiftName:true,
+          departmentName:true,
+          checkIn: true,
+          checkOut: true,
+        }
+ 
+      });
+
+
+      const now = toZonedTime(new Date(), TZ);
+      const startT = new Date(now.getTime() + 1 * 60 * 1000); // 1 دقيقة تحضير
+      const endT = new Date(startT.getTime() + 7 * 60 * 1000); // 7 دقائق دوام
+
+      if (!demoShift) {
+        demoShift = await this.prisma.shift.create({
+          data: {
+            id: randomUUID(),
+            name: 'الوردية التفاعلية (10 دقائق)',
+            startTime: format(startT, 'HH:mm:ss'),
+            endTime: format(endT, 'HH:mm:ss'),
+            gracePeriodMinIn: 2,
+            gracePeriodMinOut: 2,
+            departmentsId: department.id,
+          },
+        });
+      } else if (!demoAttendance || !demoAttendance.checkIn) {
+        // تجديد الوردية في حال لم يتم تسجيل الحضور التجريبي اليوم
+        demoShift = await this.prisma.shift.update({
+          where: { id: demoShift.id },
+          data: {
+            startTime: format(startT, 'HH:mm:ss'),
+            endTime: format(endT, 'HH:mm:ss'),
+            gracePeriodMinIn: 2,
+            gracePeriodMinOut: 2,
+          },
+        });
+      }
+
+      return ResponseHelper.success(
+        {
+          periodDate: todayStr,
+          name: employee.user?.fullName || '',
+          departmentName: department?.name || 'القسم العام',
+          managerName: employee.manager?.user?.fullName || '',
+          demoShift: {
+            shiftId: demoShift.id,
+            name: demoShift.name,
+            startTime: demoAttendance?.shiftStart || demoShift.startTime,
+            endTime: demoAttendance?.shiftEnd || demoShift.endTime,
+            gracePeriodMinIn: demoShift.gracePeriodMinIn,
+            gracePeriodMinOut: demoShift.gracePeriodMinOut,
+            isDemo: true,
+          },
+          demoCheckValue: demoAttendance ? {
+            id: demoAttendance.id,
+            status: demoAttendance.status,
+            checkIn: demoAttendance.checkIn ? format(demoAttendance.checkIn, "HH:mm") : null,
+            checkOut: demoAttendance.checkOut ? format(demoAttendance.checkOut, "HH:mm") : null,
+            excused: demoAttendance.excuses,
+            notes: demoAttendance.employeeNote || demoAttendance.adminNotes,
+            totalWorkedHours: demoAttendance.totalWorkedHours,
+            earlyLeaveMinutes: demoAttendance.earlyLeaveMinutes,
+            lateMinutes: demoAttendance.lateMinutes,
+          } : null,
+          todayReport: officialAttendance ? {
+            id: officialAttendance.id,
+            date: format(officialAttendance.date,'yyyy-MM-dd'),
+            status: officialAttendance.status,
+            shiftId:officialAttendance.shiftId,
+            shiftName: officialAttendance.shiftName,
+            departmentName: officialAttendance.departmentName,
+            checkIn: officialAttendance.checkIn ? format(officialAttendance.checkIn, "HH:mm") : null,
+            checkOut: officialAttendance.checkOut ? format(officialAttendance.checkOut, "HH:mm") : null,
+          } : null,
+        },
+        'تم جلب بيانات الوردية التجريبية المستقلة بنجاح'
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // demoCheckIn - تسجيل حضور تجريبي معزول في سجلات الحضور
+    // ─────────────────────────────────────────────────────────────
+    async demoCheckIn(employeeId: string, shiftId: string, checkIn: string, notes?: string) {
+      return this.checkIn(employeeId, shiftId, checkIn, notes);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // demoCheckOut - تسجيل انصراف تجريبي معزول في سجلات الحضور
+    // ─────────────────────────────────────────────────────────────
+    async demoCheckOut(employeeId: string, attendId: string, shiftId: string, checkOut: Date, notes?: string) {
+      return this.checkOut(employeeId, attendId, shiftId, checkOut, notes);
+    }
 
      // ─────────────────────────────────────────────────────────────
    // submitExcuse -  تقديم عذر
@@ -537,7 +735,9 @@ export class AttendanceService {
       throw new NotFoundException('لم يتم العثور على ملف الموظف');
     }
 
-    const today = startOfDay(toZonedTime(Date.now(), TZ));
+    const nowZoned = toZonedTime(Date.now(), TZ);
+    const todayStr = format(nowZoned, 'yyyy-MM-dd');
+    const today = new Date(`${todayStr}T00:00:00.000Z`);
 
     let attendance: any = null;
     if (dto.attendanceId) {

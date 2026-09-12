@@ -28,7 +28,7 @@ export class CheckInDto {
   shiftId: string;
 
   @ApiProperty({ description: 'معرف الموظف' })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   employeeId: string;
 
@@ -102,8 +102,9 @@ export class AttendanceController {
       @CurrentUser('userId') userId: string,
       @Body() body: CheckInDto,
     ) {
+      const Id = body.employeeId || userId ;
     return this.attendanceService.checkIn(
-        body.employeeId ,
+        Id ,
         body.shiftId,
         body.checkIn,
         body.notes,
@@ -134,6 +135,43 @@ export class AttendanceController {
       @Query('employeeId') employeeId?: string,
     ){
       return this.attendanceService.fetchSourceData(userId, date ,employeeId);
+    }
+
+    @Get("demo-shift")
+    getDemoShift(
+      @CurrentUser('userId') userId: string,
+      @Query('employeeId') employeeId?: string,
+    ){
+      return this.attendanceService.getOrCreateDemoShift(userId, employeeId);
+    }
+
+    @Post('demo-check-in')
+    demoCheckIn(
+      @CurrentUser('userId') userId: string,
+      @Body() body: CheckInDto,
+    ) {
+      const id = body.employeeId || userId;
+      return this.attendanceService.demoCheckIn(
+        id,
+        body.shiftId,
+        body.checkIn,
+        body.notes,
+      );
+    }
+
+    @Post('demo-check-out')
+    demoCheckOut(
+      @CurrentUser('userId') userId: string,
+      @Body() body: CheckOutDto,
+    ) {
+      const id = body.employeeId || userId;
+      return this.attendanceService.demoCheckOut(
+        id,
+        body.attendId,
+        body.shiftId,
+        new Date(body.checkOut),
+        body.notes,
+      );
     }
 
   
