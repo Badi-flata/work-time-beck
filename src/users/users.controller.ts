@@ -87,7 +87,7 @@ export class UsersController {
   @Public()
   @Post('logIn')
   @ApiOperation({ summary: 'تسجيل الدخول للمستخدم' })
-  @ApiBody({ type: LoginDto })
+  @ApiBody({ type: LoginDto }) 
   loginIn(@Body() body: any) {
     const password = body.passwordHash || body.password;
     return this.usersService.loginIn(password, body.email);
@@ -144,8 +144,8 @@ export class UsersController {
 
   @Patch('update-my-profile')
   @ApiOperation({ summary: 'تحديث البيانات الشخصية للمستخدم (الاسم، الهاتف، البريد، المسمى الوظيفي)' })
-  update(@CurrentUser('userId') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
+  update(@CurrentUser('userId') id: string,@CurrentUser('role') role: string, @Body() updateUserDto: UpdateUserDto) {
+    return this.usersService.update(id,role, updateUserDto);
   }
 
   // ═══════════════════════════════════════════════════════════════════

@@ -256,21 +256,27 @@ async getMyProfile(userId: string) {
   }
 
 
-  async update(userId: string, Dto: UpdateUserDto) {
+  async update(userId: string ,role:string, Dto: UpdateUserDto) {
+
+   const isManager = role ==="MANAGER" || role === "SUPER_ADMIN"
+
+   const profile= isManager ? await this.prisma.adminProfile.findUnique({
+     where:{id:userId}
+   }): await this.prisma.employeeProfile.findUnique({
+     where:{id:userId}
+   })
+
     const data: any = {};
     if (Dto.fullName) data.fullName = Dto.fullName;
     if (Dto.email) data.email = Dto.email;
     if (Dto.phone) data.phone = Dto.phone;
     if (Dto.jobTitle) data.jobTitle = Dto.jobTitle;
     if (Dto.imageProfile) data.imageProfile = Dto.imageProfile;
-    
+  
     const updatedUser = await this.prisma.user.update({
-      where: { id: userId },
+      where: { id: profile?.userId },
       data,
-      
     });
-
-
 
     return {
       user: updatedUser,
