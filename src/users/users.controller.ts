@@ -85,7 +85,7 @@ export class UsersController {
   }
 
   @Public()
-  @Post('loginIn')
+  @Post('logIn')
   @ApiOperation({ summary: 'تسجيل الدخول للمستخدم' })
   @ApiBody({ type: LoginDto })
   loginIn(@Body() body: any) {
