@@ -16,6 +16,7 @@ import { Auth } from '../core/decorators/global.auth.decorator';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../core/decorators/current-user.decorator';
 
+@Auth(Role.MANAGER,Role.SUPER_ADMIN)
 @Controller('department')
 export class DepartmentController {
   constructor(private readonly departmentService: DepartmentService) {}
@@ -25,7 +26,6 @@ export class DepartmentController {
   // ═══════════════════════════════════════════════════════════════════
 
   // GET /department — جميع الأقسام التابعة للمدير مع عدد الموظفين والورديات
-  @Auth(Role.MANAGER,Role.SUPER_ADMIN)
   @Get()
   findAll(@CurrentUser('userId') userId: string) {
     return this.departmentService.findAll(userId);
