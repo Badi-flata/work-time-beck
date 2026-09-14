@@ -105,11 +105,12 @@ export class StatisticsHelperService {
       const hasAbsentExcuse = excusesArray.some((e: any) => e.type === "ABSENT");
       const hasEarlyDepartureExcuse = excusesArray.some((e: any) => e.type === "EARLY_DEPARTURE");
       const hasApprovedExcuse = hasLateExcuse || hasAbsentExcuse || hasEarlyDepartureExcuse;
-      const status = a.status;
+      let status = a.status;
       let deduction = 0;
 
       // أولوية التحقق: الأعذار المعتمدة تُصنف كـ EXCUSED قبل الـ LATE
       if (status === AttendanceStatus.EXCUSED || hasApprovedExcuse) {
+        status = 'EXCUSED';
         excusedDays++;
       } else if (status === AttendanceStatus.ON_TIME) {
         onTimeDays++;
@@ -141,7 +142,7 @@ export class StatisticsHelperService {
       dailyBreakdown.push({
         attendanceId: a.id,
         date: format(toZonedTime(a.date, TZ), 'yyyy-MM-dd'),
-        status: a.status,
+        status,
         checkIn,
         checkOut,
         managerName: a.managerName || 'بدون مدير',
