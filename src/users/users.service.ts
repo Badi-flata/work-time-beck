@@ -115,18 +115,32 @@ export class UsersService {
 
   // تسجيل الدخول 
   async loginIn( passwordHash: string ,email:string) {
-    // التحقق من وجود المستخدم 
-    const user = await this.prisma.user.findUnique({ 
-      where: { email }, 
+    const trimmedEmail = email?.trim();
+    // التحقق من وجود المستخدم (مع دعم case-insensitive وتجاوز المسافات)
+    let user = await this.prisma.user.findFirst({ 
+      where: { 
+        email: { equals: trimmedEmail, mode: 'insensitive' } 
+      }, 
       include: { 
         adminProfile: true, 
         employeeProfile: true 
       } 
     });
 
-    const userProfile = user?.role === "EMPLOYEE" ? user?.employeeProfile: user?.adminProfile 
-   
     if(!user) throw new InvalidCredentialsException();
+
+    // في حال عدم وجود ملف شخصي لـ SUPER_ADMIN أو MANAGER أو EMPLOYEE، نقوم بإنشائه تلقائياً لمنع أي أخطاء
+    if ((user.role === Role.SUPER_ADMIN || user.role === Role.MANAGER) && !user.adminProfile) {
+      user.adminProfile = await this.prisma.adminProfile.create({
+        data: { userId: user.id }
+      });
+    } else if (user.role === Role.EMPLOYEE && !user.employeeProfile) {
+      user.employeeProfile = await this.prisma.employeeProfile.create({
+        data: { userId: user.id }
+      });
+    }
+
+    const userProfile = user?.role === "EMPLOYEE" ? user?.employeeProfile: user?.adminProfile;
       
     // التحقق من كلمة المرور 
     const isValid = await bcrypt.compare(passwordHash , user.passwordHash );
@@ -151,13 +165,13 @@ export class UsersService {
   }
   
 async getMyProfile(userId: string) {
-
-    const profileId = await this.prisma.employeeProfile.findUnique({
-      where:{id:userId},
-      include:{user:true}
-    })
-    const user =   await this.prisma.user.findUnique({
-      where: { id: profileId?.userId },
+    const empProfile = await this.prisma.employeeProfile.findFirst({
+      where: { OR: [{ id: userId }, { userId: userId }] },
+      include: { user: true }
+    });
+    const targetUserId = empProfile ? empProfile.userId : userId;
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
       select: { 
         imageProfile:true,
         jobTitle:true,
@@ -205,12 +219,13 @@ async getMyProfile(userId: string) {
   }
 
   async getMyManager(userId: string) {
-       const profileId = await this.prisma.adminProfile.findUnique({
-      where:{id:userId},
-      include:{user:true}
-    })
-    const user =   await this.prisma.user.findUnique({
-      where: { id: profileId?.userId },
+    const adminProfile = await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ id: userId }, { userId: userId }] },
+      include: { user: true }
+    });
+    const targetUserId = adminProfile ? adminProfile.userId : userId;
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
       select: {
         imageProfile:true,
         jobTitle:true,
@@ -247,7 +262,7 @@ async getMyProfile(userId: string) {
 
     if (!user) throw new NotFoundException('المستخدم غير موجود');
 
-    const OrginzationLabel= await this.statsHelper.computeOrganizationDiscipline(userId,Modes.ALL)
+    const OrginzationLabel = await this.statsHelper.computeOrganizationDiscipline(targetUserId, Modes.ALL);
       return {
         user ,
        mate: OrginzationLabel,
@@ -257,14 +272,15 @@ async getMyProfile(userId: string) {
 
 
   async update(userId: string ,role:string, Dto: UpdateUserDto) {
+    const isManager = role ==="MANAGER" || role === "SUPER_ADMIN";
 
-   const isManager = role ==="MANAGER" || role === "SUPER_ADMIN"
+    const profile = isManager ? await this.prisma.adminProfile.findFirst({
+      where: { OR: [{ id: userId }, { userId: userId }] }
+    }) : await this.prisma.employeeProfile.findFirst({
+      where: { OR: [{ id: userId }, { userId: userId }] }
+    });
 
-   const profile= isManager ? await this.prisma.adminProfile.findUnique({
-     where:{id:userId}
-   }): await this.prisma.employeeProfile.findUnique({
-     where:{id:userId}
-   })
+    const targetUserId = profile ? profile.userId : userId;
 
     const data: any = {};
     if (Dto.fullName) data.fullName = Dto.fullName;
@@ -274,7 +290,7 @@ async getMyProfile(userId: string) {
     if (Dto.imageProfile) data.imageProfile = Dto.imageProfile;
   
     const updatedUser = await this.prisma.user.update({
-      where: { id: profile?.userId },
+      where: { id: targetUserId },
       data,
     });
 

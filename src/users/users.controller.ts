@@ -85,12 +85,13 @@ export class UsersController {
   }
 
   @Public()
-  @Post('logIn')
+  @Post(['logIn', 'loginIn', 'login'])
   @ApiOperation({ summary: 'تسجيل الدخول للمستخدم' })
   @ApiBody({ type: LoginDto }) 
   loginIn(@Body() body: any) {
     const password = body.passwordHash || body.password;
-    return this.usersService.loginIn(password, body.email);
+    const email = body.email || body.username;
+    return this.usersService.loginIn(password, email);
   }
 
   @Public()
