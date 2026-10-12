@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2026 Badi Flata (عبادي فلاتة). All rights reserved.
+ * Project: WorkTime - Smart Attendance & Workforce Discipline Management System.
+ * Core Engine: Granular Salary Deductions, Period Computation & Automated Check-out.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
+
 import { Injectable, NotFoundException, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { PrismaService } from './../prisma/prisma.service';
 import {

@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2026 Badi Flata (عبادي فلاتة). All rights reserved.
+ * Project: WorkTime - Smart Attendance & Workforce Discipline Management System.
+ * Core Security: Multi-Device JWT Architecture, Session Tracking & Token Reuse Detection.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
+
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Role } from "@prisma/client";
@@ -13,6 +20,7 @@ export class AuthService {
 
   private hashToken(token: string): string {
     return crypto.createHash("sha256").update(token).digest("hex");
+    
   }
 
   // توليد زوج الرموز وتخزين جلسة الـ Refresh Token في قاعدة البيانات

@@ -1,0 +1,33 @@
+﻿Copyright (c) 2026 Badi Flata (عبادي فلاتة). All Rights Reserved.
+
+Project: WorkTime — Smart Attendance & Workforce Discipline Management System
+
+TERMS AND CONDITIONS FOR ACCESS AND USE
+
+1. Proprietary Rights:
+   This software, its source code, architecture, user interface designs, and documentation
+   are the exclusive intellectual property of Badi Flata ("Author"). All rights, title,
+   and interest in and to the software remain solely with the Author.
+
+2. Permitted Use:
+   You are granted a limited, personal, non-exclusive, non-transferable right to:
+   - View, read, and browse the source code solely for the purposes of portfolio evaluation,
+     educational study, and recruitment/technical competency review.
+
+3. Prohibited Acts:
+   Under no circumstances may you, or anyone acting on your behalf:
+   - Copy, reproduce, redistribute, republish, sublicense, sell, rent, or lease any part of
+     this codebase or its underlying assets.
+   - Deploy, host, or execute this software for commercial, organizational, or production
+     purposes without the prior express written consent of the Author.
+   - Create derivative works, modifications, or reverse-engineer the proprietary algorithms
+     (including but not limited to the Shift Timing Engine, Granular Deductions Engine, and Multi-Manager Architecture).
+   - Remove, obscure, or alter any copyright, author attribution, or trademark notices.
+
+4. Disclaimer of Warranty:
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+   IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY
+   ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE.
+
+For licensing inquiries, commercial partnerships, or permission requests, please contact:
+Badi Flata (badiflatt@gmail.com)

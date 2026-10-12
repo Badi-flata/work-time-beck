@@ -385,7 +385,8 @@ erDiagram
 
 ## License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+Copyright © 2026 **Badi Flata (عبادي فلاتة)**. All rights reserved.  
+This project is proprietary software for portfolio review and educational evaluation. Commercial use, reproduction, or distribution is strictly prohibited — see the [LICENSE](LICENSE) file for terms and conditions.
 
 <p align="center">
   Built with ❤️ using <a href="https://nestjs.com/">NestJS</a>
