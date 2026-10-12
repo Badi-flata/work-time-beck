@@ -1,7 +1,7 @@
 {
   "name": "nestjs-prisma",
   "version": "4.0.0",
-  "description": "WorkTime - Smart Attendance & Workforce Discipline Management System (Backend API)",
+  "description": "WorkTime - Smart Attendance & Departure Management System (Backend API)",
   "author": "Badi Flata <badiflatt@gmail.com>",
   "homepage": "https://badi-flata.github.io/workTime-fornt/",
   "repository": {

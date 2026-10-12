@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2026 Badi Flata (عبادي فلاتة). All rights reserved.
+ * Project: WorkTime - Smart Attendance & Departure Management System.
+ * Core Engine: Global Attendance Statistics, KPIs & Discipline Filters.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
+
 // ═══════════════════════════════════════════════════════════════
 // StatisticsHelperService — الطبقة المركزية للحسابات الإحصائية
 // ═══════════════════════════════════════════════════════════════

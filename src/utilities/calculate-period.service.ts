@@ -1,3 +1,11 @@
+
+/**
+ * Copyright (c) 2026 Badi Flata (عبادي فلاتة). All rights reserved.
+ * Project: WorkTime - Smart Attendance & Departure Management System.
+ * Core Engine: Date Boundaries, Riyadh Timezone Normalization & Period Computation.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
+
 import { Modes } from "./types/dashboard-registry.types";
 import {format} from "date-fns";
 import { toZonedTime } from "date-fns-tz";

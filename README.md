@@ -2,10 +2,16 @@
   <img src="https://nestjs.com/img/logo-small.svg" width="80" alt="NestJS Logo" />
 </p>
 
-<h1 align="center">WorkTime — Backend API</h1>
+<h1 align="center">
+  <span style="color: #2bbb76;">WORK</span><span style="color: #e2e8f0;">TIME</span> — Backend API
+</h1>
 
 <p align="center">
-  A robust, enterprise-ready <strong>Attendance & Workforce Management</strong> REST API built with <strong>NestJS</strong>, <strong>Prisma ORM</strong>, and <strong>PostgreSQL</strong>.
+  A robust, enterprise-ready <strong>Smart Attendance & Departure Management System</strong> REST API built with <strong>NestJS</strong>, <strong>Prisma ORM</strong>, and <strong>PostgreSQL</strong>.
+</p>
+
+<p align="center">
+  🌐 <strong>Live Frontend Demo:</strong> <a href="https://badi-flata.github.io/workTime-fornt/">https://badi-flata.github.io/workTime-fornt</a> — <em>Experience the live interactive application</em>
 </p>
 
 <p align="center">
